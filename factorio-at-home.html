@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factorio Clicker Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        #gameCanvas {
+            border: 1px solid black;
+            margin-right: 20px;
+            background-color: #f0f0f0;
+        }
+        #inventory, #crafting, #craftingQueue, #craftingMachines, #smelting {
+            margin-top: 20px;
+        }
+        #sidebar {
+            display: flex;
+            flex-direction: column;
+            max-width: 300px;
+        }
+        #crafting, #craftingQueue, #craftingMachines, #smelting {
+            margin-bottom: 20px;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); fill: darkgray; }
+            50% { transform: scale(1.1); fill: gray; }
+            100% { transform: scale(1); fill: darkgray; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+    <div id="sidebar">
+        <div id="inventory">
+            <h2>Inventory</h2>
+            <ul>
+                <li>Coal: <span id="coal">0</span></li>
+                <li>Iron Ore: <span id="ironOre">0</span></li>
+                <li>Copper Ore: <span id="copperOre">0</span></li>
+                <li>Stone: <span id="stone">0</span></li>
+                <li>Iron Plate: <span id="ironPlate">0</span></li>
+                <li>Copper Plate: <span id="copperPlate">0</span></li>
+                <li>Stone Brick: <span id="stoneBrick">0</span></li>
+            </ul>
+        </div>
+        <div id="crafting">
+            <h2>Crafting Menu</h2>
+            <button id="craftStoneFurnace">Craft Stone Furnace (Cost: 5 Stone)</button>
+        <button id="craftIronGear" style="display: none;">Craft Iron Gear (Cost: 2 Iron Plates)</button>
+            <button id="craftRedScience" style="display: none;">Craft Red Science (Cost: 1 Iron Gear, 1 Copper Plate)</button>
+        </div>
+        <div id="craftingQueue">
+            <h2>Crafting Queue</h2>
+            <ul id="queueList"></ul>
+        </div>
+        <div id="craftingMachines">
+            <h2>Crafting Machines</h2>
+            <ul id="machinesList"></ul>
+        </div>
+        <div id="smelting" style="display: none;">
+            <h2>Smelting</h2>
+            <button id="smeltIron">Iron Plate</button>
+            <button id="smeltCopper">Copper Plate</button>
+            <button id="smeltStone">Stone Brick</button>
+            <ul id="smeltingQueue"></ul>
+        </div>
+    </div>
+    <button id="resetButton" style="position: fixed; bottom: 20px; right: 20px;">Hard Reset</button>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const resetButton = document.getElementById('resetButton');
+        const craftStoneFurnaceButton = document.getElementById('craftStoneFurnace');
+        const craftIronGearButton = document.getElementById('craftIronGear');
+        const craftRedScienceButton = document.getElementById('craftRedScience');
+        const queueList = document.getElementById('queueList');
+        const machinesList = document.getElementById('machinesList');
+        const smeltIronButton = document.getElementById('smeltIron');
+        const smeltCopperButton = document.getElementById('smeltCopper');
+        const smeltStoneButton = document.getElementById('smeltStone');
+        const smeltingQueueList = document.getElementById('smeltingQueue');
+        
+        // Load game state from localStorage
+        const savedGameState = JSON.parse(localStorage.getItem('gameState'));
+        const gameState = savedGameState || {
+            inventory: {
+                coal: 0,
+                ironOre: 0,
+                copperOre: 0,
+                stone: 0,
+                ironPlate: 0,
+                copperPlate: 0,
+                stoneBrick: 0
+            },
+            craftingQueue: [],
+            craftingMachines: {},
+            smeltingQueue: []
+        };
+        const inventory = gameState.inventory;
+        const craftingQueue = gameState.craftingQueue;
+        const smeltingQueue = gameState.smeltingQueue;
+        let isCrafting = false;
+        let isSmelting = false;
+
+        // Resource positions and sizes
+        const resources = [
+            { name: 'coal', x: 50, y: 50, width: 50, height: 50 },
+            { name: 'ironOre', x: 150, y: 50, width: 50, height: 50 },
+            { name: 'copperOre', x: 250, y: 50, width: 50, height: 50 },
+            { name: 'stone', x: 350, y: 50, width: 50, height: 50 }
+        ];
+
+        // Draw resources on canvas
+        function drawResources() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            resources.forEach(resource => {
+                ctx.fillStyle = 'gray';
+                ctx.fillRect(resource.x, resource.y, resource.width, resource.height);
+                ctx.fillStyle = 'black';
+                ctx.fillText(resource.name, resource.x + 5, resource.y + 30);
+            });
+        }
+
+        // Call drawResources to ensure resources are drawn when the page loads
+        window.addEventListener('load', drawResources);
+
+        // Update inventory display
+        function updateInventory() {
+            document.getElementById('coal').textContent = inventory.coal;
+            document.getElementById('ironOre').textContent = inventory.ironOre;
+            document.getElementById('copperOre').textContent = inventory.copperOre;
+            document.getElementById('stone').textContent = inventory.stone;
+            document.getElementById('ironPlate').textContent = inventory.ironPlate;
+            document.getElementById('copperPlate').textContent = inventory.copperPlate;
+            document.getElementById('stoneBrick').textContent = inventory.stoneBrick;
+
+            document.getElementById('ironGear')?.remove();
+            if (inventory.ironGear) {
+                const ironGearItem = document.createElement('li');
+                ironGearItem.id = 'ironGear';
+                ironGearItem.textContent = `Iron Gear: ${inventory.ironGear}`;
+                document.getElementById('inventory').querySelector('ul').appendChild(ironGearItem);
+            }
+            document.getElementById('redScience')?.remove();
+            if (inventory.redScience) {
+                const redScienceItem = document.createElement('li');
+                redScienceItem.id = 'redScience';
+                redScienceItem.textContent = `Red Science: ${inventory.redScience}`;
+                document.getElementById('inventory').querySelector('ul').appendChild(redScienceItem);
+            }
+            saveGameState();
+        }
+
+        // Update crafting queue display
+        function updateCraftingQueueDisplay() {
+            queueList.innerHTML = '';
+            craftingQueue.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${item.name} - Progress: ${item.progress}%`;
+                queueList.appendChild(li);
+            });
+        }
+
+        // Update crafting machines list display
+        function updateMachinesList() {
+            machinesList.innerHTML = '';
+            for (const [machineName, count] of Object.entries(gameState.craftingMachines)) {
+                const li = document.createElement('li');
+                li.textContent = `${machineName} x ${count}`;
+                machinesList.appendChild(li);
+            }
+        }
+
+        // Update smelting queue display
+        function updateSmeltingQueueDisplay() {
+            smeltingQueueList.innerHTML = '';
+            smeltingQueue.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${item.name} - Progress: ${item.progress}%`;
+                smeltingQueueList.appendChild(li);
+            });
+        }
+
+        // Save game state to localStorage
+        function saveGameState() {
+            localStorage.setItem('gameState', JSON.stringify(gameState));
+        }
+
+        // Handle canvas clicks
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+
+            resources.forEach(resource => {
+                if (
+                    mouseX >= resource.x &&
+                    mouseX <= resource.x + resource.width &&
+                    mouseY >= resource.y &&
+                    mouseY <= resource.y + resource.height
+                ) {
+                    inventory[resource.name]++;
+                    updateInventory();
+                    provideVisualFeedback(resource);
+                }
+            });
+        });
+
+        // Provide visual feedback when resource is clicked
+        function provideVisualFeedback(resource) {
+            let progress = 0;
+            const pulseInterval = setInterval(() => {
+                progress += 10;
+                ctx.save();
+                ctx.translate(resource.x + resource.width / 2, resource.y + resource.height / 2);
+                ctx.scale(1 + 0.1 * Math.sin(progress * Math.PI / 50), 1 + 0.1 * Math.sin(progress * Math.PI / 50));
+                ctx.translate(-(resource.x + resource.width / 2), -(resource.y + resource.height / 2));
+                ctx.fillStyle = 'gray';
+                ctx.fillRect(resource.x, resource.y, resource.width, resource.height);
+                ctx.restore();
+                ctx.fillStyle = 'black';
+                ctx.fillText(resource.name, resource.x + 5, resource.y + 30);
+
+                if (progress >= 100) {
+                    clearInterval(pulseInterval);
+                    drawResources();
+                }
+            }, 30);
+        }
+
+        // Handle reset button click
+        resetButton.addEventListener('click', () => {
+            if (confirm('Are you sure you want to reset your progress?')) {
+                localStorage.removeItem('gameState');
+                inventory.coal = 0;
+                inventory.ironOre = 0;
+                inventory.copperOre = 0;
+                inventory.stone = 0;
+                inventory.ironPlate = 0;
+                inventory.copperPlate = 0;
+                inventory.stoneBrick = 0;
+                craftingQueue.length = 0;
+                smeltingQueue.length = 0;
+                gameState.craftingMachines = {};
+                updateInventory();
+                updateCraftingQueueDisplay();
+                updateMachinesList();
+                updateSmeltingQueueDisplay();
+                drawResources();
+            }
+        });
+
+        // Handle crafting stone furnace
+        craftStoneFurnaceButton.addEventListener('click', () => {
+            if (inventory.stone >= 5 && craftingQueue.length < 10) {
+                inventory.stone -= 5;
+                craftingQueue.push({ name: 'Stone Furnace', progress: 0 });
+                updateInventory();
+                updateCraftingQueueDisplay();
+                if (!isCrafting) {
+                    processCraftingQueue();
+                }
+            } else {
+                alert('Not enough resources or queue is full!');
+            }
+        });
+
+        // Handle crafting iron gear
+        craftIronGearButton.addEventListener('click', () => {
+            if (inventory.ironPlate >= 2 && craftingQueue.length < 10) {
+                inventory.ironPlate -= 2;
+                craftingQueue.push({ name: 'Iron Gear', progress: 0 });
+                updateInventory();
+                updateCraftingQueueDisplay();
+                if (!isCrafting) {
+                    processCraftingQueue();
+                }
+            } else {
+                alert('Not enough resources or queue is full!');
+            }
+        });
+
+        // Handle crafting red science
+        craftRedScienceButton.addEventListener('click', () => {
+            if (inventory.ironGear >= 1 && inventory.copperPlate >= 1 && craftingQueue.length < 10) {
+                inventory.ironGear--;
+                inventory.ironGear--;
+                inventory.copperPlate--;
+                craftingQueue.push({ name: 'Red Science', progress: 0 });
+                updateInventory();
+                updateCraftingQueueDisplay();
+                if (!isCrafting) {
+                    processCraftingQueue();
+                }
+            } else {
+                alert('Not enough resources or queue is full!');
+            }
+        });
+
+        // Process crafting queue
+        function processCraftingQueue() {
+            if (craftingQueue.length > 0) {
+                isCrafting = true;
+                const currentItem = craftingQueue[0];
+                const craftingInterval = setInterval(() => {
+                    currentItem.progress += 10;
+                    updateCraftingQueueDisplay();
+                    saveGameState();
+
+                    if (currentItem.progress >= 100) {
+                        clearInterval(craftingInterval);
+                        craftingQueue.shift();
+                        updateCraftingQueueDisplay();
+                        if (currentItem.name === 'Stone Furnace') {
+                            addCraftingMachine(currentItem.name);
+                        if (currentItem.name === 'Stone Furnace') {
+                            document.getElementById('smelting').style.display = 'block';
+                            document.getElementById('smelting').style.display = 'block';
+                        }
+                        } else {
+                            addToInventory(currentItem.name);
+                        }
+                        if (currentItem.name === 'Iron Gear' && inventory.ironGear === 1) {
+                            document.getElementById('craftRedScience').style.display = 'block';
+                        }
+                        saveGameState();
+                        if (craftingQueue.length > 0) {
+                            processCraftingQueue();
+                        } else {
+                            isCrafting = false;
+                        }
+                    }
+                }, 1000);
+            }
+        }
+
+        // Add crafting machine
+        function addCraftingMachine(machineName) {
+            if (gameState.craftingMachines[machineName]) {
+                gameState.craftingMachines[machineName]++;
+            } else {
+                gameState.craftingMachines[machineName] = 1;
+            }
+            updateMachinesList();
+            saveGameState();
+        }
+
+        function addToInventory(itemName) {
+            if (inventory[itemName]) {
+                inventory[itemName]++;
+            } else {
+                inventory[itemName] = 1;
+            }
+            updateInventory();
+            saveGameState();
+        }
+
+        // Handle smelting buttons
+        smeltIronButton.addEventListener('click', () => {
+            if (inventory.ironOre >= 1 && inventory.coal >= 1 && smeltingQueue.length < 10) {
+                inventory.ironOre--;
+                inventory.coal--;
+                smeltingQueue.push({ name: 'Iron Plate', progress: 0 });
+                updateInventory();
+                updateSmeltingQueueDisplay();
+                if (!isSmelting) {
+                    processSmeltingQueue();
+                }
+            } else {
+                alert('Not enough resources or smelting queue is full!');
+            }
+        });
+
+        smeltCopperButton.addEventListener('click', () => {
+            if (inventory.copperOre >= 1 && inventory.coal >= 1 && smeltingQueue.length < 10) {
+                inventory.copperOre--;
+                inventory.coal--;
+                smeltingQueue.push({ name: 'Copper Plate', progress: 0 });
+                updateInventory();
+                updateSmeltingQueueDisplay();
+                if (!isSmelting) {
+                    processSmeltingQueue();
+                }
+            } else {
+                alert('Not enough resources or smelting queue is full!');
+            }
+        });
+
+        smeltStoneButton.addEventListener('click', () => {
+            if (inventory.stone >= 1 && inventory.coal >= 1 && smeltingQueue.length < 10) {
+                inventory.stone--;
+                inventory.coal--;
+                smeltingQueue.push({ name: 'Stone Brick', progress: 0 });
+                updateInventory();
+                updateSmeltingQueueDisplay();
+                if (!isSmelting) {
+                    processSmeltingQueue();
+                }
+            } else {
+                alert('Not enough resources or smelting queue is full!');
+            }
+        });
+
+        // Process smelting queue
+        function processSmeltingQueue() {
+            if (smeltingQueue.length > 0) {
+                isSmelting = true;
+                const currentItem = smeltingQueue[0];
+                const smeltingSpeed = gameState.craftingMachines['Stone Furnace'] || 0;
+                if (smeltingSpeed === 0) {
+                    isSmelting = false;
+                    return;
+                }
+                const smeltingInterval = setInterval(() => {
+                    currentItem.progress += 10 * smeltingSpeed;
+                    updateSmeltingQueueDisplay();
+                    saveGameState();
+
+                    if (currentItem.progress >= 100) {
+                        clearInterval(smeltingInterval);
+                        smeltingQueue.shift();
+                        updateSmeltingQueueDisplay();
+                        addSmeltedProduct(currentItem.name);
+                        saveGameState();
+                        if (smeltingQueue.length > 0) {
+                            processSmeltingQueue();
+                        } else {
+                            isSmelting = false;
+                        }
+                    }
+                }, 1000);
+            }
+        }
+
+        // Add smelted product to inventory
+        function addSmeltedProduct(productName) {
+            if (productName === 'Iron Plate' && inventory.ironPlate >= 1) {
+                document.getElementById('craftIronGear').style.display = 'block';
+            }
+            if (productName === 'Iron Plate') {
+                inventory.ironPlate++;
+            } else if (productName === 'Copper Plate') {
+                inventory.copperPlate++;
+            } else if (productName === 'Stone Brick') {
+                inventory.stoneBrick++;
+            }
+            updateInventory();
+        }
+    </script>
+</body>
+</html>
