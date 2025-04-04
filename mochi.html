@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mochi's Veterinary Case Summary</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 960px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #555;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .overview, .graphs {
+            margin-bottom: 30px;
+        }
+        .graph-container {
+            margin-bottom: 25px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .highlight-critical {
+            color: red;
+            font-weight: bold;
+        }
+        .highlight-good {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+</head>
+<body>
+    <div class="container">
+        <h1>Mochi's Veterinary Case Summary</h1>
+
+        <div class="overview">
+            <h2>Case Overview</h2>
+            <p><strong>Patient:</strong> Mochi, 3-year-old male mixed-breed dog (SRD).</p>
+            <p><strong>Initial Presentation (Late March 2025):</strong> Acute onset of low energy, dark urine, vomiting, anorexia, and adipsia. Diagnosed with severe Acute Kidney Injury (AKI), cholestatic liver disease (jaundice), thrombocytopenia (low platelets), and splenomegaly. Suspected cause: Leptospirosis.</p>
+            <p><strong>Treatment Initiated:</strong> Supportive care (IV fluids, anti-emetics, liver support - SAMe/Ursodiol) and antibiotics (Doxycycline).</p>
+            <p><strong>Clinical Progression (as of ~April 4th, 2025):</strong></p>
+            <ul>
+                <li><span class="highlight-good">Kidney Function:</span> Excellent recovery. Urea and Creatinine levels returned to within normal limits.</li>
+                <li><span class="highlight-critical">Liver Function:</span> Condition significantly worsened. ALT (liver cell damage indicator) became markedly elevated. Alkaline Phosphatase and Bilirubin levels (indicating cholestasis/jaundice) increased dramatically, showing severe and progressive liver compromise.</li>
+                <li><strong>Gastrointestinal Tract:</strong> Ultrasound showed inflammation (thickened walls) in the stomach and intestines.</li>
+                <li><strong>Inflammation:</strong> Bloodwork showed marked neutrophilia (high neutrophils) indicating significant ongoing systemic inflammation.</li>
+                <li><strong>Other:</strong> Platelet count normalized. Eccentrocytes (damaged RBCs) noted.</li>
+            </ul>
+            <p><strong>Current Status (Early April 2025):</strong> While the AKI has resolved, Mochi is now facing severe, worsening hepatitis/cholestasis and significant systemic inflammation. The prognosis remains very guarded due to the critical liver condition.</p>
+        </div>
+
+        <div class="graphs">
+            <h2>Lab Result Evolution</h2>
+            <p><em>Note: Graphs show trends based on available data points. Reference ranges indicated where applicable.</em></p>
+
+            <div class="graph-container">
+                <h3>Kidney Function Markers</h3>
+                <canvas id="ureaChart"></canvas>
+                <canvas id="creatinineChart"></canvas>
+            </div>
+
+            <div class="graph-container">
+                <h3>Liver Function Markers</h3>
+                 <canvas id="bilirubinChart"></canvas>
+                 <canvas id="altChart"></canvas>
+                 <canvas id="alpChart"></canvas>
+            </div>
+
+            <div class="graph-container">
+                 <h3>Hematology Markers</h3>
+                 <canvas id="plateletChart"></canvas>
+                 <canvas id="wbcChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Data Setup ---
+        // Dates (Using simplified numerical representation for sorting, formatted later)
+        // Approximation: Mar 27 = Day 0, Mar 29 = Day 2, Mar 30 = Day 3, Apr 4 = Day 8
+        // Actual Dates: '2025-03-27', '2025-03-29', '2025-03-30', '2025-04-04'
+        const dates = ['2025-03-27', '2025-03-29', '2025-03-30', '2025-04-04'];
+
+        // Values (using null where data is missing for a date)
+        // Using highest value reported for day 1 if multiple existed
+        const ureaData = [318.8, 144.4, 106.5, 50.0]; // Ref: 10-56
+        const creatinineData = [9.9, 2.15, 1.33, 0.57]; // Ref: 0.5-1.6
+        const totalBilirubinData = [1.94, null, 2.26, 4.86]; // Ref: 0.1-0.7
+        const directBilirubinData = [1.51, null, 1.48, 3.02]; // Ref: 0.06-0.3
+        const indirectBilirubinData = [0.43, null, 0.78, 1.84]; // Ref: 0.01-0.5
+        const altData = [43.4, null, null, 577.2]; // Ref: 10-88
+        const alpData = [316.1, null, null, 638.4]; // Ref: 20-156
+        const plateletData = [180, 203, 280, 270]; // Ref: 200-500 (using 180k for day 1)
+        const wbcData = [null, null, null, 27.4]; // Ref: 6.0-15.0 (Only one point from summary)
+        // Neutrophil data difficult to plot consistently (percentage vs count) - omitting for simplicity
+
+         // Helper function to create datasets, skipping nulls
+        const createDataset = (data) => {
+            return data.map((value, index) => value !== null ? { x: dates[index], y: value } : null).filter(item => item !== null);
+        };
+
+        // --- Chart Configuration ---
+        const commonOptions = {
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'day',
+                        tooltipFormat: 'yyyy-MM-dd',
+                         displayFormats: {
+                           day: 'MMM dd'
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Date'
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                     title: {
+                        display: true,
+                        text: 'Value'
+                    }
+                }
+            },
+            responsive: true,
+            maintainAspectRatio: true, // Adjust as needed
+             plugins: {
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            }
+        };
+
+        // --- Chart Rendering ---
+
+        // Urea Chart
+        new Chart(document.getElementById('ureaChart'), {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Urea (mg/dL)',
+                    data: createDataset(ureaData),
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                }]
+            },
+            options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'Urea (Ref: 10-56 mg/dL)' } } }
+        });
+
+        // Creatinine Chart
+        new Chart(document.getElementById('creatinineChart'), {
+            type: 'line',
+            data: {
+                 datasets: [{
+                    label: 'Creatinine (mg/dL)',
+                    data: createDataset(creatinineData),
+                    borderColor: 'rgb(54, 162, 235)',
+                    tension: 0.1
+                }]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'Creatinine (Ref: 0.5-1.6 mg/dL)' } } }
+        });
+
+        // Bilirubin Chart (Combined)
+        new Chart(document.getElementById('bilirubinChart'), {
+            type: 'line',
+            data: {
+                 datasets: [
+                    {
+                        label: 'Total Bilirubin (mg/dL)',
+                        data: createDataset(totalBilirubinData),
+                        borderColor: 'rgb(255, 99, 132)',
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Direct Bilirubin (mg/dL)',
+                        data: createDataset(directBilirubinData),
+                        borderColor: 'rgb(255, 159, 64)',
+                        tension: 0.1
+                    },
+                     {
+                        label: 'Indirect Bilirubin (mg/dL)',
+                        data: createDataset(indirectBilirubinData),
+                        borderColor: 'rgb(255, 205, 86)',
+                        tension: 0.1
+                    }
+                 ]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'Bilirubin Levels (Total Ref: 0.1-0.7 mg/dL)' } } }
+        });
+
+         // ALT Chart
+        new Chart(document.getElementById('altChart'), {
+            type: 'line',
+            data: {
+                 datasets: [{
+                    label: 'ALT (TGP) (U/I)',
+                    data: createDataset(altData),
+                    borderColor: 'rgb(153, 102, 255)',
+                    tension: 0.1
+                }]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'ALT (Ref: 10-88 U/I)' } } }
+        });
+
+         // ALP Chart
+        new Chart(document.getElementById('alpChart'), {
+            type: 'line',
+            data: {
+                 datasets: [{
+                    label: 'Alkaline Phosphatase (U/I)',
+                    data: createDataset(alpData),
+                    borderColor: 'rgb(201, 203, 207)',
+                    tension: 0.1
+                }]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'Alkaline Phosphatase (Ref: 20-156 U/I)' } } }
+        });
+
+        // Platelet Chart
+        new Chart(document.getElementById('plateletChart'), {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Platelets (x1000/mm³)',
+                    data: createDataset(plateletData),
+                    borderColor: 'rgb(75, 192, 75)',
+                    tension: 0.1
+                }]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'Platelet Count (Ref: 200-500 k/mm³)' } } }
+        });
+
+         // WBC Chart
+        new Chart(document.getElementById('wbcChart'), {
+            type: 'line', // Or bar chart might be better for single point
+            data: {
+                datasets: [{
+                    label: 'WBC (x1000/mm³)',
+                     data: createDataset(wbcData), // Only one data point
+                    borderColor: 'rgb(255, 99, 71)',
+                    backgroundColor: 'rgba(255, 99, 71, 0.5)',
+                     pointRadius: 5, // Make single point visible
+                    showLine: false // Don't show a line for one point
+                }]
+            },
+             options: { ...commonOptions, plugins: { ...commonOptions.plugins, title: { display: true, text: 'WBC Count (Ref: 6.0-15.0 k/mm³)' } } }
+        });
+
+
+    </script>
+
+</body>
+</html>
