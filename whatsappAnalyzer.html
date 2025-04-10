@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Chat Analyzer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        #dropZone {
+            border: 3px dashed #ccc;
+            padding: 50px;
+            text-align: center;
+            background-color: #fff;
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+        #dropZone.hover {
+            border-color: #333;
+            background-color: #eee;
+        }
+        #fileName {
+            margin-top: 10px;
+            font-style: italic;
+            color: #555;
+        }
+        #controls {
+            margin-bottom: 20px;
+        }
+        #results {
+            background-color: #fff;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #e9e9e9;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            font-weight: bold;
+            color: #007bff;
+            margin-top: 10px;
+        }
+         /* Simple responsive adjustments */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            #dropZone {
+                padding: 30px;
+            }
+            th, td {
+                padding: 5px;
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>WhatsApp Chat Analyzer</h1>
+
+    <div id="dropZone">
+        Drag & Drop your WhatsApp Chat .txt file here
+        <div id="fileName"></div>
+        <input type="file" id="fileInput" accept=".txt" style="display: none;">
+    </div>
+
+    <div id="controls">
+        <label for="timeframe">Select Timeframe:</label>
+        <select id="timeframe" disabled>
+            <option value="lifetime">Lifetime</option>
+            <option value="last_1_month">Last 1 Month</option>
+            <option value="last_3_months">Last 3 Months</option>
+            <option value="last_6_months">Last 6 Months</option>
+            <option value="last_12_months">Last 12 Months</option>
+            </select>
+    </div>
+
+    <div id="loading">Processing... Please wait for large files.</div>
+    <div id="results">
+        Please drop a file to see the analysis.
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileName');
+        const timeframeSelect = document.getElementById('timeframe');
+        const resultsDiv = document.getElementById('results');
+        const loadingDiv = document.getElementById('loading');
+
+        let allMessages = []; // Store all parsed messages {date, sender, text}
+        let availableMonths = new Set(); // To store YYYY-MM
+
+        // --- Drag & Drop ---
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('hover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('hover');
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('hover');
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        // Allow clicking the drop zone to select file
+         dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+         fileInput.addEventListener('change', (event) => {
+             const files = event.target.files;
+             if (files.length > 0) {
+                 handleFile(files[0]);
+             }
+         });
+
+        // --- File Handling & Parsing ---
+        function handleFile(file) {
+            if (file.type === 'text/plain') {
+                fileNameDisplay.textContent = `Selected: ${file.name}`;
+                resultsDiv.innerHTML = ''; // Clear previous results
+                loadingDiv.style.display = 'block'; // Show loading indicator
+                 // Reset
+                allMessages = [];
+                availableMonths = new Set();
+                resetTimeframeSelect();
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                     // Use setTimeout to allow UI update before heavy processing
+                    setTimeout(() => {
+                        parseChat(e.target.result);
+                        enableControlsAndAnalyze();
+                        loadingDiv.style.display = 'none'; // Hide loading
+                    }, 10); // Small delay
+                };
+                reader.onerror = (e) => {
+                    console.error("Error reading file:", e);
+                    resultsDiv.textContent = 'Error reading file.';
+                    loadingDiv.style.display = 'none';
+                };
+                reader.readAsText(file);
+            } else {
+                fileNameDisplay.textContent = '';
+                resultsDiv.textContent = 'Please drop a valid .txt file.';
+            }
+        }
+
+        function resetTimeframeSelect() {
+            // Remove old month options
+            const options = timeframeSelect.querySelectorAll('option');
+            options.forEach(option => {
+                if (option.value.startsWith('month_')) {
+                    option.remove();
+                }
+            });
+            timeframeSelect.value = 'lifetime'; // Reset selection
+        }
+
+        function parseChat(chatContent) {
+            // Regex attempt: Matches common formats like M/D/YY, HH:MM AM/PM - Sender: Message
+            // Or DD/MM/YYYY, HH:MM - Sender: Message
+            // It captures date string, sender, and message body. Handles optional AM/PM.
+             // Group 1: Date (e.g., "3/4/22" or "04/03/2022")
+             // Group 2: Time (e.g., "1:00 AM" or "13:00")
+             // Group 3: Sender (Anything before the ': ')
+             // Group 4: Message content
+             const messageRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)/;
+
+            const lines = chatContent.split('\n');
+            allMessages = []; // Reset messages
+
+            lines.forEach(line => {
+                const match = line.match(messageRegex);
+                if (match) {
+                    const dateStr = match[1].trim();
+                    const sender = match[3].trim();
+                    const text = match[4].trim();
+
+                    // Attempt to parse the date robustly (handles M/D/YY and DD/MM/YYYY)
+                    let date = parseDate(dateStr);
+
+                    if (date) {
+                         allMessages.push({ date, sender, text });
+                         // Store available months for dropdown
+                         const year = date.getFullYear();
+                         const month = (date.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
+                         availableMonths.add(`${year}-${month}`);
+                    } else {
+                        console.warn("Could not parse date:", dateStr, "in line:", line);
+                    }
+                }
+                // Ignore lines that don't match (like system messages, multi-line messages not starting with date)
+            });
+             console.log(`Parsed ${allMessages.length} messages.`);
+        }
+
+        function parseDate(dateStr) {
+            // Try M/D/YY format first (common in US WhatsApp exports)
+             let parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+             if (parts) {
+                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+                 let day = parseInt(parts[2], 10);
+                 let year = parseInt(parts[3], 10) + 2000; // Assuming 21st century
+                 return new Date(year, month, day);
+             }
+
+             // Try DD/MM/YYYY format
+             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             if (parts) {
+                 let day = parseInt(parts[1], 10);
+                 let month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+                 let year = parseInt(parts[3], 10);
+                 return new Date(year, month, day);
+             }
+
+            // Try MM/DD/YYYY format
+            parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             if (parts) {
+                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+                 let day = parseInt(parts[2], 10);
+                 let year = parseInt(parts[3], 10);
+                  // Basic ambiguity check (if day > 12, it's likely MM/DD)
+                 if (day <= 12) {
+                     // Could be MM/DD or DD/MM, assume MM/DD for now, might need more robust logic
+                     // Or try creating both and see which is valid? For simplicity, stick to one guess.
+                     console.warn(`Date format ${dateStr} is ambiguous (could be MM/DD/YYYY or DD/MM/YYYY). Assuming MM/DD/YYYY.`);
+                 }
+                  return new Date(year, month, day);
+             }
+
+             // Add more parsing attempts here if needed for other formats
+             console.error("Failed to parse date format:", dateStr);
+             return null; // Indicate failure
+         }
+
+
+        function enableControlsAndAnalyze() {
+            if (allMessages.length > 0) {
+                 populateMonthOptions();
+                 timeframeSelect.disabled = false;
+                 timeframeSelect.addEventListener('change', analyzeChat); // Add listener only once file is loaded
+                 analyzeChat(); // Perform initial analysis for "Lifetime"
+             } else {
+                 resultsDiv.textContent = 'No valid messages found in the file. Check format?';
+                 timeframeSelect.disabled = true;
+             }
+        }
+
+        function populateMonthOptions() {
+            const sortedMonths = Array.from(availableMonths).sort().reverse(); // Newest first
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+             sortedMonths.forEach(monthYear => { // format YYYY-MM
+                 const [year, month] = monthYear.split('-');
+                 const option = document.createElement('option');
+                 option.value = `month_${monthYear}`;
+                 option.textContent = `${monthNames[parseInt(month, 10) - 1]} ${year}`;
+                 timeframeSelect.appendChild(option);
+             });
+        }
+
+
+        // --- Analysis & Display ---
+        function analyzeChat() {
+            const selectedTimeframe = timeframeSelect.value;
+            const now = new Date();
+            let startDate = null;
+            let endDate = null;
+
+            if (selectedTimeframe.startsWith('month_')) {
+                 const [year, month] = selectedTimeframe.substring(6).split('-').map(Number);
+                 startDate = new Date(year, month - 1, 1); // Month is 0-indexed
+                 endDate = new Date(year, month, 0); // Last day of the month
+            } else {
+                 switch (selectedTimeframe) {
+                    case 'last_1_month':
+                        startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                        break;
+                    case 'last_3_months':
+                        startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+                        break;
+                    case 'last_6_months':
+                         startDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+                         break;
+                     case 'last_12_months':
+                         startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                         break;
+                     case 'lifetime':
+                     default:
+                         startDate = null; // No start date means include all
+                         break;
+                 }
+                 endDate = now; // End date is always 'now' for relative periods
+            }
+
+
+            const messageCounts = {};
+            let filteredMessageCount = 0;
+
+            allMessages.forEach(msg => {
+                 // Check if message date falls within the selected range
+                 let includeMessage = false;
+                 if (!startDate) { // Lifetime
+                     includeMessage = true;
+                 } else if (selectedTimeframe.startsWith('month_')) {
+                     // For specific month, check if date is within month boundaries
+                     if (msg.date >= startDate && msg.date <= new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999)) { // Include full end day
+                         includeMessage = true;
+                     }
+                 } else {
+                     // For relative periods (last N months)
+                     if (msg.date >= startDate && msg.date <= endDate) {
+                         includeMessage = true;
+                     }
+                 }
+
+                 if (includeMessage) {
+                     messageCounts[msg.sender] = (messageCounts[msg.sender] || 0) + 1;
+                     filteredMessageCount++;
+                 }
+             });
+
+            // Convert to array and sort
+            const sortedMembers = Object.entries(messageCounts)
+                .sort(([, countA], [, countB]) => countB - countA); // Sort descending by count
+
+            displayResults(sortedMembers, filteredMessageCount, selectedTimeframe);
+        }
+
+        function displayResults(sortedMembers, totalMessagesInPeriod, timeframe) {
+            if (sortedMembers.length === 0) {
+                 resultsDiv.innerHTML = `<h3>No messages found for the selected timeframe: ${timeframeSelect.options[timeframeSelect.selectedIndex].text}</h3>`;
+                 return;
+             }
+
+            let tableHTML = `
+                <h3>Activity Ranking (${timeframeSelect.options[timeframeSelect.selectedIndex].text})</h3>
+                <p>Total messages in this period: ${totalMessagesInPeriod}</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Member</th>
+                            <th>Message Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            sortedMembers.forEach(([sender, count], index) => {
+                tableHTML += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${escapeHTML(sender)}</td>
+                        <td>${count}</td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+
+            resultsDiv.innerHTML = tableHTML;
+        }
+
+         // Simple HTML escaping function
+         function escapeHTML(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+    </script>
+
+</body>
+</html>
