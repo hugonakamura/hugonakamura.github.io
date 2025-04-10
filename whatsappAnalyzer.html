@@ -3,20 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Chat Analyzer</title>
+    <title>WhatsApp Chat Analyzer V2</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: sans-serif;
             padding: 20px;
             background-color: #f4f4f4;
+            line-height: 1.6;
         }
         #dropZone {
             border: 3px dashed #ccc;
-            padding: 50px;
+            padding: 40px; /* Adjusted padding */
             text-align: center;
             background-color: #fff;
             margin-bottom: 20px;
             cursor: pointer;
+            border-radius: 5px;
         }
         #dropZone.hover {
             border-color: #333;
@@ -26,16 +29,60 @@
             margin-top: 10px;
             font-style: italic;
             color: #555;
+            font-size: 0.9em;
         }
-        #controls {
-            margin-bottom: 20px;
-        }
-        #results {
+        #controls, #dateControls, #tabControls {
+            margin-bottom: 15px;
             background-color: #fff;
             padding: 15px;
             border: 1px solid #ddd;
             border-radius: 5px;
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            gap: 15px; /* Add space between control items */
+            align-items: center;
         }
+         #controls label, #dateControls label {
+            margin-right: 5px;
+            font-weight: bold;
+        }
+        #controls select, #dateControls input[type="date"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #tabControls button {
+            padding: 10px 15px;
+            cursor: pointer;
+            border: 1px solid #007bff;
+            background-color: #f8f9fa;
+            color: #007bff;
+            border-radius: 4px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        #tabControls button.active {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+         #tabControls button:disabled {
+            border-color: #ccc;
+            color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .view {
+            display: none; /* Hide views by default */
+            background-color: #fff;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        .view.active {
+            display: block; /* Show active view */
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -54,26 +101,55 @@
             text-align: center;
             font-weight: bold;
             color: #007bff;
-            margin-top: 10px;
+            margin: 20px 0;
         }
          /* Simple responsive adjustments */
-        @media (max-width: 600px) {
+        @media (max-width: 768px) {
             body {
                 padding: 10px;
             }
+             #controls, #dateControls {
+                flex-direction: column; /* Stack controls vertically */
+                align-items: stretch; /* Make controls full width */
+            }
+             #controls > div, #dateControls > div {
+                 display: flex;
+                 flex-direction: column; /* Stack label and input */
+                 margin-bottom: 10px;
+             }
+            #controls label, #dateControls label {
+                margin-bottom: 5px; /* Space between label and input */
+            }
+            #controls select, #dateControls input[type="date"] {
+                 width: 100%; /* Make inputs full width */
+                 box-sizing: border-box; /* Include padding/border in width */
+            }
+
             #dropZone {
-                padding: 30px;
+                padding: 20px;
             }
             th, td {
                 padding: 5px;
                 font-size: 0.9em;
             }
+             #tabControls {
+                justify-content: center;
+             }
         }
+         @media (max-width: 480px) {
+             h1 {
+                 font-size: 1.5em;
+             }
+             #tabControls button {
+                 padding: 8px 10px;
+                 font-size: 0.9em;
+             }
+         }
     </style>
 </head>
 <body>
 
-    <h1>WhatsApp Chat Analyzer</h1>
+    <h1>WhatsApp Chat Analyzer V2</h1>
 
     <div id="dropZone">
         Drag & Drop your WhatsApp Chat .txt file here
@@ -82,244 +158,283 @@
     </div>
 
     <div id="controls">
-        <label for="timeframe">Select Timeframe:</label>
-        <select id="timeframe" disabled>
-            <option value="lifetime">Lifetime</option>
-            <option value="last_1_month">Last 1 Month</option>
-            <option value="last_3_months">Last 3 Months</option>
-            <option value="last_6_months">Last 6 Months</option>
-            <option value="last_12_months">Last 12 Months</option>
-            </select>
+         <div>
+            <label for="timeframe">Select Timeframe:</label>
+            <select id="timeframe" disabled>
+                <option value="lifetime">Lifetime</option>
+                <option value="last_1_month">Last 1 Month</option>
+                <option value="last_3_months">Last 3 Months</option>
+                <option value="last_6_months">Last 6 Months</option>
+                <option value="last_12_months">Last 12 Months</option>
+                <option value="custom">Custom Range</option>
+                </select>
+        </div>
+    </div>
+    <div id="dateControls">
+         <div>
+             <label for="startDate">Start Date:</label>
+             <input type="date" id="startDate" disabled>
+         </div>
+         <div>
+             <label for="endDate">End Date:</label>
+             <input type="date" id="endDate" disabled>
+         </div>
+    </div>
+
+    <div id="tabControls">
+        <button id="showTableBtn" disabled>Table View</button>
+        <button id="showGraphBtn" disabled>Graph View</button>
     </div>
 
     <div id="loading">Processing... Please wait for large files.</div>
-    <div id="results">
-        Please drop a file to see the analysis.
+
+    <div id="tableView" class="view">
+        <p>Table results will appear here.</p>
     </div>
+    <div id="graphView" class="view">
+         <p>Graph will appear here (requires internet).</p>
+         <canvas id="contributionChart"></canvas>
+    </div>
+
 
     <script>
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const fileNameDisplay = document.getElementById('fileName');
         const timeframeSelect = document.getElementById('timeframe');
-        const resultsDiv = document.getElementById('results');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
         const loadingDiv = document.getElementById('loading');
+        const tableView = document.getElementById('tableView');
+        const graphView = document.getElementById('graphView');
+        const showTableBtn = document.getElementById('showTableBtn');
+        const showGraphBtn = document.getElementById('showGraphBtn');
+        const chartCanvas = document.getElementById('contributionChart');
 
         let allMessages = []; // Store all parsed messages {date, sender, text}
         let availableMonths = new Set(); // To store YYYY-MM
+        let currentChart = null; // To hold the Chart.js instance
 
-        // --- Drag & Drop ---
-        dropZone.addEventListener('dragover', (event) => {
-            event.preventDefault();
-            dropZone.classList.add('hover');
+        // --- Initial State ---
+        function disableControls() {
+            timeframeSelect.disabled = true;
+            startDateInput.disabled = true;
+            endDateInput.disabled = true;
+            showTableBtn.disabled = true;
+            showGraphBtn.disabled = true;
+            tableView.classList.remove('active');
+            graphView.classList.remove('active');
+            tableView.innerHTML = '<p>Drop a file to begin.</p>';
+            graphView.innerHTML = '<p>essa parte ainda n vai funcionar direito</p><canvas id="contributionChart"></canvas>'; // Reset graph view too
+             if (currentChart) {
+                currentChart.destroy(); // Clean up existing chart
+                currentChart = null;
+            }
+        }
+        disableControls(); // Initially disable everything
+
+        // --- Tab Switching ---
+        showTableBtn.addEventListener('click', () => {
+            tableView.classList.add('active');
+            graphView.classList.remove('active');
+            showTableBtn.classList.add('active');
+            showGraphBtn.classList.remove('active');
+        });
+        showGraphBtn.addEventListener('click', () => {
+            tableView.classList.remove('active');
+            graphView.classList.add('active');
+            showTableBtn.classList.remove('active');
+            showGraphBtn.classList.add('active');
+            // Maybe trigger re-render of graph if needed, though analyzeChat handles it
         });
 
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('hover');
-        });
 
+        // --- Drag & Drop & File Input ---
+        dropZone.addEventListener('dragover', (event) => { event.preventDefault(); dropZone.classList.add('hover'); });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('hover'); });
         dropZone.addEventListener('drop', (event) => {
             event.preventDefault();
             dropZone.classList.remove('hover');
             const files = event.dataTransfer.files;
-            if (files.length > 0) {
-                handleFile(files[0]);
-            }
+            if (files.length > 0) handleFile(files[0]);
         });
-
-        // Allow clicking the drop zone to select file
-         dropZone.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-         fileInput.addEventListener('change', (event) => {
+        dropZone.addEventListener('click', () => { fileInput.click(); });
+        fileInput.addEventListener('change', (event) => {
              const files = event.target.files;
-             if (files.length > 0) {
-                 handleFile(files[0]);
-             }
+             if (files.length > 0) handleFile(files[0]);
          });
 
-        // --- File Handling & Parsing ---
-        function handleFile(file) {
-            if (file.type === 'text/plain') {
-                fileNameDisplay.textContent = `Selected: ${file.name}`;
-                resultsDiv.innerHTML = ''; // Clear previous results
-                loadingDiv.style.display = 'block'; // Show loading indicator
-                 // Reset
-                allMessages = [];
-                availableMonths = new Set();
-                resetTimeframeSelect();
+        // --- Date Input Handling ---
+        startDateInput.addEventListener('change', handleDateChange);
+        endDateInput.addEventListener('change', handleDateChange);
 
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                     // Use setTimeout to allow UI update before heavy processing
-                    setTimeout(() => {
-                        parseChat(e.target.result);
-                        enableControlsAndAnalyze();
-                        loadingDiv.style.display = 'none'; // Hide loading
-                    }, 10); // Small delay
-                };
-                reader.onerror = (e) => {
-                    console.error("Error reading file:", e);
-                    resultsDiv.textContent = 'Error reading file.';
-                    loadingDiv.style.display = 'none';
-                };
-                reader.readAsText(file);
-            } else {
-                fileNameDisplay.textContent = '';
-                resultsDiv.textContent = 'Please drop a valid .txt file.';
+        function handleDateChange() {
+             if (startDateInput.value && endDateInput.value) {
+                timeframeSelect.value = 'custom'; // Set dropdown to custom
+                analyzeChat(); // Re-analyze with custom dates
+            } else if(timeframeSelect.value === 'custom') {
+                 // If one date is cleared while custom is selected, maybe show a message?
+                 // Or just let analyzeChat handle it (it might default to lifetime if dates invalid)
+                 analyzeChat(); // Re-analyze, might revert if dates incomplete
             }
         }
 
+
+        // --- File Handling & Parsing Logic ---
+        function handleFile(file) {
+            if (file.type !== 'text/plain') {
+                fileNameDisplay.textContent = '';
+                alert('Please drop a valid .txt file.'); // Use alert for clearer feedback
+                disableControls();
+                return;
+            }
+
+            fileNameDisplay.textContent = `Selected: ${file.name}`;
+            tableView.innerHTML = ''; // Clear previous results
+            graphView.innerHTML = '<canvas id="contributionChart"></canvas>'; // Reset graph canvas
+            loadingDiv.style.display = 'block';
+            disableControls(); // Disable while processing
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                setTimeout(() => { // Allow UI update
+                    try {
+                        parseChat(e.target.result);
+                        if(allMessages.length > 0) {
+                            enableControlsAndAnalyze();
+                        } else {
+                             alert("No valid messages found or parsed. Check file format?");
+                             tableView.innerHTML = '<p>No valid messages found or parsed. Check file format?</p>';
+                        }
+                    } catch (error) {
+                         console.error("Error during processing:", error);
+                         alert("An error occurred during processing. Check console for details.");
+                         tableView.innerHTML = '<p>An error occurred during processing.</p>';
+                    } finally {
+                        loadingDiv.style.display = 'none'; // Hide loading
+                    }
+                }, 50); // Slightly longer delay for complex UI
+            };
+            reader.onerror = (e) => {
+                console.error("Error reading file:", e);
+                alert('Error reading the file.');
+                loadingDiv.style.display = 'none';
+                disableControls();
+            };
+            reader.readAsText(file);
+        }
+
+
         function resetTimeframeSelect() {
-            // Remove old month options
             const options = timeframeSelect.querySelectorAll('option');
             options.forEach(option => {
-                if (option.value.startsWith('month_')) {
-                    option.remove();
-                }
+                if (option.value.startsWith('month_')) option.remove();
             });
             timeframeSelect.value = 'lifetime'; // Reset selection
         }
 
-        function parseChat(chatContent) {
-            // Regex for iOS format: [DD/MM/YYYY, HH:MM:SS] Sender: Message
-            // Group 1: Date (DD/MM/YYYY)
-            // Group 2: Time (HH:MM:SS)
-            // Group 3: Sender
-            // Group 4: Message
-            const iosRegex = /^\[(\d{1,2}\/\d{1,2}\/\d{4}), (\d{1,2}:\d{2}:\d{2})\]\s*([^:]+):\s*(.*)/;
+        function parseChat(chatContent) { // Using the improved parser from previous step
+             const iosRegex = /^\[(\d{1,2}\/\d{1,2}\/\d{4}), (\d{1,2}:\d{2}:\d{2})\]\s*([^:]+):\s*(.*)/;
+             const androidRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)/;
+             const lines = chatContent.split('\n');
+             allMessages = [];
+             availableMonths = new Set();
 
-            // Regex for other common format (e.g., Android): M/D/YY, HH:MM AM/PM - Sender: Message
-            // Group 1: Date (M/D/YY or similar)
-            // Group 2: Time (HH:MM AM/PM or HH:MM)
-            // Group 3: Sender
-            // Group 4: Message
-            const androidRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)/;
+             lines.forEach(line => {
+                 let match = line.match(iosRegex);
+                 let dateStr, sender, text;
+                 let matched = false;
+                 if (match) {
+                     dateStr = match[1].trim(); sender = match[3].trim(); text = match[4].trim(); matched = true;
+                 } else {
+                     match = line.match(androidRegex);
+                     if (match) { dateStr = match[1].trim(); sender = match[3].trim(); text = match[4].trim(); matched = true; }
+                 }
 
-            const lines = chatContent.split('\n');
-            allMessages = []; // Reset messages
-            availableMonths = new Set(); // Reset months
-
-            lines.forEach(line => {
-                let match = line.match(iosRegex);
-                let dateStr, sender, text;
-                let matched = false;
-
-                if (match) {
-                    dateStr = match[1].trim(); // DD/MM/YYYY
-                    sender = match[3].trim();
-                    text = match[4].trim();
-                    matched = true;
-                } else {
-                    match = line.match(androidRegex);
-                    if (match) {
-                        dateStr = match[1].trim(); // M/D/YY or similar
-                        sender = match[3].trim();
-                        text = match[4].trim();
-                        matched = true;
-                    }
-                }
-
-                if (matched) {
-                    // Attempt to parse the date using the extracted date string
-                    let date = parseDate(dateStr);
-
-                    if (date) {
-                         // Basic filter for common system messages often attributed to users in iOS exports
-                         // NOTE: This is language-specific (Portuguese example shown) and might not be exhaustive
-                         if (!text.startsWith('‎As mensagens e ligações') && !text.startsWith('‎entrou usando um link') && !text.includes('‎saiu')) {
+                 if (matched) {
+                     let date = parseDate(dateStr);
+                     if (date) {
+                         if (!text.startsWith('‎As mensagens e ligações') && !text.startsWith('‎entrou usando um link') && !text.includes('‎saiu')) { // Basic system msg filter
                              allMessages.push({ date, sender, text });
-
-                             // Store available months for dropdown
                              const year = date.getFullYear();
-                             const month = (date.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
+                             const month = (date.getMonth() + 1).toString().padStart(2, '0');
                              availableMonths.add(`${year}-${month}`);
                          }
-                    } else {
-                        console.warn("Could not parse date:", dateStr, "in line:", line);
-                    }
-                }
-                // Ignore lines that don't match either format
-            });
+                     } else {
+                         // console.warn("Could not parse date:", dateStr); // Reduce noise
+                     }
+                 }
+             });
              console.log(`Parsed ${allMessages.length} valid user messages.`);
-        }
-
-        function parseDate(dateStr) {
-             // Try DD/MM/YYYY format (common in iOS exports and non-US Android)
-             let parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-             if (parts) {
-                 let day = parseInt(parts[1], 10);
-                 let month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
-                 let year = parseInt(parts[3], 10);
-                  // Basic sanity check for DD/MM order
-                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
-                    const date = new Date(year, month, day);
-                    // Check if the constructed date is valid (accounts for days in month)
-                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
-                        return date;
-                    }
-                 }
-             }
-
-            // Try M/D/YY format (common in US Android exports)
-             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-             if (parts) {
-                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-                 let day = parseInt(parts[2], 10);
-                 let year = parseInt(parts[3], 10) + 2000; // Assuming 21st century
-                  // Basic sanity check for MM/DD order
-                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
-                    const date = new Date(year, month, day);
-                     // Check if the constructed date is valid
-                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
-                        return date;
-                    }
-                 }
-             }
-
-            // Try M/D/YYYY format (less common but possible)
-            parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (parts) {
-                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-                 let day = parseInt(parts[2], 10);
-                 let year = parseInt(parts[3], 10);
-                  // Basic sanity check for MM/DD order
-                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
-                    const date = new Date(year, month, day);
-                    // Check if the constructed date is valid
-                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
-                        return date;
-                    }
-                 }
-            }
-
-
-             // Add more parsing attempts here if needed for other formats
-             // console.error("Failed to parse date format:", dateStr); // Reduce console noise
-             return null; // Indicate failure
          }
 
+         function parseDate(dateStr) { // Robust date parser
+            let parts;
+             // Try DD/MM/YYYY
+             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             if (parts) {
+                 let day = parseInt(parts[1], 10), month = parseInt(parts[2], 10) - 1, year = parseInt(parts[3], 10);
+                 if (month >= 0 && month < 12 && day > 0 && day <= 31) { const d = new Date(year, month, day); if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) return d; }
+             }
+            // Try M/D/YY
+             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+             if (parts) {
+                 let month = parseInt(parts[1], 10) - 1, day = parseInt(parts[2], 10), year = parseInt(parts[3], 10) + 2000;
+                  if (month >= 0 && month < 12 && day > 0 && day <= 31) { const d = new Date(year, month, day); if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) return d; }
+             }
+             // Try M/D/YYYY
+            parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             if (parts) {
+                 let month = parseInt(parts[1], 10) - 1, day = parseInt(parts[2], 10), year = parseInt(parts[3], 10);
+                 if (month >= 0 && month < 12 && day > 0 && day <= 31) { const d = new Date(year, month, day); if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) return d; }
+             }
+             return null;
+         }
 
         function enableControlsAndAnalyze() {
-            if (allMessages.length > 0) {
-                 populateMonthOptions();
-                 timeframeSelect.disabled = false;
-                  // Ensure event listener isn't added multiple times
-                 timeframeSelect.removeEventListener('change', analyzeChat);
-                 timeframeSelect.addEventListener('change', analyzeChat);
-                 analyzeChat(); // Perform initial analysis for "Lifetime"
-             } else {
-                 resultsDiv.textContent = 'No valid user messages found or parsed in the file. Check file format/content?';
-                 timeframeSelect.disabled = true;
+            // Populate month options in dropdown
+            resetTimeframeSelect(); // Clear old month options first
+            populateMonthOptions();
+
+             // Enable controls
+            timeframeSelect.disabled = false;
+            startDateInput.disabled = false;
+            endDateInput.disabled = false;
+            showTableBtn.disabled = false;
+            showGraphBtn.disabled = false;
+
+             // Set initial view
+             tableView.classList.add('active');
+             showTableBtn.classList.add('active'); // Make table button active
+             graphView.classList.remove('active'); // Ensure graph is hidden initially
+             showGraphBtn.classList.remove('active');
+
+             // Set default date range for inputs (optional, could be min/max of data)
+             if (allMessages.length > 0) {
+                const dates = allMessages.map(m => m.date);
+                const minDate = new Date(Math.min.apply(null, dates));
+                const maxDate = new Date(Math.max.apply(null, dates));
+                startDateInput.min = minDate.toISOString().split('T')[0];
+                startDateInput.max = maxDate.toISOString().split('T')[0];
+                endDateInput.min = minDate.toISOString().split('T')[0];
+                endDateInput.max = maxDate.toISOString().split('T')[0];
+                // Optionally set default values
+                 // startDateInput.value = startDateInput.min;
+                 // endDateInput.value = endDateInput.max;
              }
+
+
+            // Add event listeners (ensure they are added only once)
+             timeframeSelect.removeEventListener('change', analyzeChat); // Remove previous listener if any
+             timeframeSelect.addEventListener('change', analyzeChat);
+
+            analyzeChat(); // Perform initial analysis
         }
 
-        function populateMonthOptions() {
+         function populateMonthOptions() {
             const sortedMonths = Array.from(availableMonths).sort().reverse(); // Newest first
             const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-             sortedMonths.forEach(monthYear => { // format YYYY-MM
+            sortedMonths.forEach(monthYear => { // format YYYY-MM
                  const [year, month] = monthYear.split('-');
                  const option = document.createElement('option');
                  option.value = `month_${monthYear}`;
@@ -332,113 +447,223 @@
         // --- Analysis & Display ---
         function analyzeChat() {
             const selectedTimeframe = timeframeSelect.value;
-            const now = new Date();
             let startDate = null;
             let endDate = null;
+            let useDateInputs = false;
 
-             // Set time to 00:00:00 for start dates and 23:59:59 for end dates for accurate comparison
-             now.setHours(23, 59, 59, 999);
+            // Check if custom dates are valid and should be used
+            if (startDateInput.value && endDateInput.value) {
+                const start = new Date(startDateInput.value);
+                const end = new Date(endDateInput.value);
+                 // Add time component to make dates inclusive
+                 start.setHours(0,0,0,0);
+                 end.setHours(23,59,59,999);
 
-            if (selectedTimeframe.startsWith('month_')) {
-                 const [year, month] = selectedTimeframe.substring(6).split('-').map(Number);
-                 startDate = new Date(year, month - 1, 1); // Month is 0-indexed, start of day
-                 startDate.setHours(0, 0, 0, 0);
-                 endDate = new Date(year, month, 0); // Last day of the month
-                 endDate.setHours(23, 59, 59, 999); // End of day
-            } else {
-                 endDate = new Date(); // Use current date/time as end for relative periods
-                 endDate.setHours(23, 59, 59, 999);
-
-                 switch (selectedTimeframe) {
-                    case 'last_1_month':
-                        startDate = new Date();
-                        startDate.setMonth(startDate.getMonth() - 1);
-                        break;
-                    case 'last_3_months':
-                         startDate = new Date();
-                         startDate.setMonth(startDate.getMonth() - 3);
-                        break;
-                    case 'last_6_months':
-                         startDate = new Date();
-                          startDate.setMonth(startDate.getMonth() - 6);
-                         break;
-                     case 'last_12_months':
-                          startDate = new Date();
-                          startDate.setFullYear(startDate.getFullYear() - 1);
-                         break;
-                     case 'lifetime':
-                     default:
-                         startDate = null; // No start date means include all
-                         break;
-                 }
-                 if(startDate) {
-                    startDate.setHours(0, 0, 0, 0); // Start of the day
+                if (!isNaN(start) && !isNaN(end) && start <= end) {
+                     startDate = start;
+                     endDate = end;
+                     useDateInputs = true;
+                     if (selectedTimeframe !== 'custom') {
+                         timeframeSelect.value = 'custom'; // Sync dropdown if dates used directly
+                     }
+                 } else if (selectedTimeframe === 'custom') {
+                     // Dates invalid but custom selected - maybe default to lifetime or show error?
+                     console.warn("Invalid custom date range selected.");
+                     // Defaulting to lifetime for now if custom dates invalid
+                     startDate = null;
+                     endDate = null;
                  }
             }
 
+            // If not using date inputs, determine range from dropdown
+            if (!useDateInputs && selectedTimeframe !== 'custom') {
+                 const now = new Date();
+                 now.setHours(23, 59, 59, 999); // End of today
 
-            const messageCounts = {};
-            let filteredMessageCount = 0;
-
-            allMessages.forEach(msg => {
-                 // Check if message date falls within the selected range
-                 let includeMessage = false;
-                 if (!startDate) { // Lifetime
-                     includeMessage = true;
-                 } else if (msg.date >= startDate && msg.date <= endDate) { // Check if date is within bounds
-                     includeMessage = true;
+                 if (selectedTimeframe.startsWith('month_')) {
+                     const [year, month] = selectedTimeframe.substring(6).split('-').map(Number);
+                     startDate = new Date(year, month - 1, 1);
+                     startDate.setHours(0, 0, 0, 0);
+                     endDate = new Date(year, month, 0); // Last day of the month
+                     endDate.setHours(23, 59, 59, 999);
+                 } else {
+                     endDate = new Date(now); // Use current date/time as end for relative periods
+                     switch (selectedTimeframe) {
+                         case 'last_1_month': startDate = new Date(now); startDate.setMonth(now.getMonth() - 1); break;
+                         case 'last_3_months': startDate = new Date(now); startDate.setMonth(now.getMonth() - 3); break;
+                         case 'last_6_months': startDate = new Date(now); startDate.setMonth(now.getMonth() - 6); break;
+                         case 'last_12_months': startDate = new Date(now); startDate.setFullYear(now.getFullYear() - 1); break;
+                         case 'lifetime':
+                         default: startDate = null; break; // Lifetime
+                     }
+                     if (startDate) startDate.setHours(0, 0, 0, 0); // Start of the day
                  }
+            } else if (!useDateInputs && selectedTimeframe === 'custom') {
+                 // Custom selected but date inputs empty/invalid - default to lifetime
+                 startDate = null;
+                 endDate = null;
+            }
 
 
-                 if (includeMessage) {
-                     messageCounts[msg.sender] = (messageCounts[msg.sender] || 0) + 1;
-                     filteredMessageCount++;
-                 }
+            // Filter messages based on the determined date range
+            const filteredMessages = allMessages.filter(msg => {
+                 if (!startDate) return true; // Lifetime
+                 return msg.date >= startDate && msg.date <= endDate;
              });
 
-            // Convert to array and sort
+            // --- Generate Table Data ---
+            const messageCounts = {};
+            filteredMessages.forEach(msg => {
+                 messageCounts[msg.sender] = (messageCounts[msg.sender] || 0) + 1;
+             });
             const sortedMembers = Object.entries(messageCounts)
-                .sort(([, countA], [, countB]) => countB - countA); // Sort descending by count
+                .sort(([, countA], [, countB]) => countB - countA);
 
-            displayResults(sortedMembers, filteredMessageCount, selectedTimeframe);
+            // --- Display Table ---
+            displayResultsTable(sortedMembers, filteredMessages.length);
+
+            // --- Prepare and Display Graph ---
+            prepareAndDisplayGraph(filteredMessages);
         }
 
-        function displayResults(sortedMembers, totalMessagesInPeriod, timeframe) {
+        function displayResultsTable(sortedMembers, totalMessagesInPeriod) {
+             let timeframeText = timeframeSelect.options[timeframeSelect.selectedIndex].text;
+             if(timeframeSelect.value === 'custom' && startDateInput.value && endDateInput.value) {
+                 timeframeText = `Custom: ${startDateInput.value} to ${endDateInput.value}`;
+             } else if (timeframeSelect.value === 'custom') {
+                 timeframeText = "Custom Range (invalid dates - showing Lifetime)";
+             }
+
+
             if (sortedMembers.length === 0) {
-                 resultsDiv.innerHTML = `<h3>No messages found for the selected timeframe: ${timeframeSelect.options[timeframeSelect.selectedIndex].text}</h3>`;
+                 tableView.innerHTML = `<h3>No messages found for the selected timeframe: ${timeframeText}</h3>`;
                  return;
              }
 
             let tableHTML = `
-                <h3>Activity Ranking (${timeframeSelect.options[timeframeSelect.selectedIndex].text})</h3>
+                <h3>Activity Ranking (${timeframeText})</h3>
                 <p>Total messages found in this period: ${totalMessagesInPeriod}</p>
                 <table>
                     <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Member</th>
-                            <th>Message Count</th>
-                        </tr>
+                        <tr><th>Rank</th><th>Member</th><th>Message Count</th></tr>
                     </thead>
                     <tbody>
             `;
-
             sortedMembers.forEach(([sender, count], index) => {
-                tableHTML += `
-                    <tr>
-                        <td>${index + 1}</td>
-                        <td>${escapeHTML(sender)}</td>
-                        <td>${count}</td>
-                    </tr>
-                `;
+                tableHTML += `<tr><td>${index + 1}</td><td>${escapeHTML(sender)}</td><td>${count}</td></tr>`;
+            });
+            tableHTML += `</tbody></table>`;
+            tableView.innerHTML = tableHTML;
+        }
+
+        function prepareAndDisplayGraph(filteredMessages) {
+            if (typeof Chart === 'undefined') {
+                 graphView.innerHTML = '<p>Error: Chart.js library not loaded. Graph cannot be displayed. Check internet connection.</p><canvas id="contributionChart"></canvas>';
+                 return;
+            }
+             // Ensure canvas exists if view was reset
+             if (!document.getElementById('contributionChart')) {
+                 graphView.innerHTML = '<canvas id="contributionChart"></canvas>';
+             }
+             const ctx = document.getElementById('contributionChart').getContext('2d');
+
+             if (filteredMessages.length === 0) {
+                 graphView.innerHTML = '<p>No messages found for this period to graph.</p><canvas id="contributionChart"></canvas>';
+                  if (currentChart) currentChart.destroy(); // Clear previous chart if no data
+                 return;
+             }
+
+            // Aggregate counts per sender per month
+            const monthlyCounts = {}; // { 'YYYY-MM': { sender: count, ... }, ... }
+            const overallSenderCounts = {}; // For finding top N senders
+
+            filteredMessages.forEach(msg => {
+                const year = msg.date.getFullYear();
+                const month = (msg.date.getMonth() + 1).toString().padStart(2, '0');
+                const monthKey = `${year}-${month}`;
+
+                if (!monthlyCounts[monthKey]) {
+                    monthlyCounts[monthKey] = {};
+                }
+                monthlyCounts[monthKey][msg.sender] = (monthlyCounts[monthKey][msg.sender] || 0) + 1;
+                 overallSenderCounts[msg.sender] = (overallSenderCounts[msg.sender] || 0) + 1;
             });
 
-            tableHTML += `
-                    </tbody>
-                </table>
-            `;
+             // Determine top N senders (e.g., top 10)
+             const topN = 10;
+             const sortedSenders = Object.keys(overallSenderCounts).sort((a, b) => overallSenderCounts[b] - overallSenderCounts[a]);
+             const topSenders = sortedSenders.slice(0, topN);
+             const otherSenders = sortedSenders.slice(topN);
 
-            resultsDiv.innerHTML = tableHTML;
+            // Prepare data for Chart.js
+             const labels = Object.keys(monthlyCounts).sort(); // Sort months chronologically
+             const datasets = [];
+             const colorPalette = ['#36A2EB', '#FF6384', '#4BC0C0', '#FF9F40', '#9966FF', '#FFCD56', '#C9CBCF', '#35a08b', '#e85e77', '#7d9e8a']; // Example colors
+
+             // Create dataset for each top sender
+             topSenders.forEach((sender, index) => {
+                 datasets.push({
+                     label: sender,
+                     data: labels.map(month => monthlyCounts[month][sender] || 0),
+                     backgroundColor: colorPalette[index % colorPalette.length], // Cycle through colors
+                 });
+             });
+
+            // Create dataset for "Other" senders
+            if (otherSenders.length > 0) {
+                datasets.push({
+                    label: 'Other',
+                    data: labels.map(month => {
+                        let otherCount = 0;
+                        otherSenders.forEach(sender => {
+                            otherCount += (monthlyCounts[month][sender] || 0);
+                        });
+                        return otherCount;
+                    }),
+                     backgroundColor: '#AAAAAA', // Grey for 'Other'
+                 });
+            }
+
+             // Destroy previous chart instance if it exists
+            if (currentChart) {
+                currentChart.destroy();
+            }
+
+            // Create the new chart
+            currentChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels, // Months on X-axis
+                    datasets: datasets
+                },
+                options: {
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Messages per User per Month'
+                        },
+                         tooltip: {
+                             mode: 'index', // Show tooltips for all datasets at that index
+                             intersect: false
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false, // Allow chart to fill container height better
+                    scales: {
+                        x: {
+                            stacked: true, // Stack bars on X-axis (months)
+                         },
+                        y: {
+                            stacked: true, // Stack bars on Y-axis (counts)
+                             beginAtZero: true,
+                             title: {
+                                 display: true,
+                                 text: 'Number of Messages'
+                             }
+                         }
+                    }
+                }
+            });
         }
 
          // Simple HTML escaping function
