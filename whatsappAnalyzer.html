@@ -183,79 +183,120 @@
         }
 
         function parseChat(chatContent) {
-            // Regex attempt: Matches common formats like M/D/YY, HH:MM AM/PM - Sender: Message
-            // Or DD/MM/YYYY, HH:MM - Sender: Message
-            // It captures date string, sender, and message body. Handles optional AM/PM.
-             // Group 1: Date (e.g., "3/4/22" or "04/03/2022")
-             // Group 2: Time (e.g., "1:00 AM" or "13:00")
-             // Group 3: Sender (Anything before the ': ')
-             // Group 4: Message content
-             const messageRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)/;
+            // Regex for iOS format: [DD/MM/YYYY, HH:MM:SS] Sender: Message
+            // Group 1: Date (DD/MM/YYYY)
+            // Group 2: Time (HH:MM:SS)
+            // Group 3: Sender
+            // Group 4: Message
+            const iosRegex = /^\[(\d{1,2}\/\d{1,2}\/\d{4}), (\d{1,2}:\d{2}:\d{2})\]\s*([^:]+):\s*(.*)/;
+
+            // Regex for other common format (e.g., Android): M/D/YY, HH:MM AM/PM - Sender: Message
+            // Group 1: Date (M/D/YY or similar)
+            // Group 2: Time (HH:MM AM/PM or HH:MM)
+            // Group 3: Sender
+            // Group 4: Message
+            const androidRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*-\s*([^:]+):\s*(.*)/;
 
             const lines = chatContent.split('\n');
             allMessages = []; // Reset messages
+            availableMonths = new Set(); // Reset months
 
             lines.forEach(line => {
-                const match = line.match(messageRegex);
-                if (match) {
-                    const dateStr = match[1].trim();
-                    const sender = match[3].trim();
-                    const text = match[4].trim();
+                let match = line.match(iosRegex);
+                let dateStr, sender, text;
+                let matched = false;
 
-                    // Attempt to parse the date robustly (handles M/D/YY and DD/MM/YYYY)
+                if (match) {
+                    dateStr = match[1].trim(); // DD/MM/YYYY
+                    sender = match[3].trim();
+                    text = match[4].trim();
+                    matched = true;
+                } else {
+                    match = line.match(androidRegex);
+                    if (match) {
+                        dateStr = match[1].trim(); // M/D/YY or similar
+                        sender = match[3].trim();
+                        text = match[4].trim();
+                        matched = true;
+                    }
+                }
+
+                if (matched) {
+                    // Attempt to parse the date using the extracted date string
                     let date = parseDate(dateStr);
 
                     if (date) {
-                         allMessages.push({ date, sender, text });
-                         // Store available months for dropdown
-                         const year = date.getFullYear();
-                         const month = (date.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
-                         availableMonths.add(`${year}-${month}`);
+                         // Basic filter for common system messages often attributed to users in iOS exports
+                         // NOTE: This is language-specific (Portuguese example shown) and might not be exhaustive
+                         if (!text.startsWith('‎As mensagens e ligações') && !text.startsWith('‎entrou usando um link') && !text.includes('‎saiu')) {
+                             allMessages.push({ date, sender, text });
+
+                             // Store available months for dropdown
+                             const year = date.getFullYear();
+                             const month = (date.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
+                             availableMonths.add(`${year}-${month}`);
+                         }
                     } else {
                         console.warn("Could not parse date:", dateStr, "in line:", line);
                     }
                 }
-                // Ignore lines that don't match (like system messages, multi-line messages not starting with date)
+                // Ignore lines that don't match either format
             });
-             console.log(`Parsed ${allMessages.length} messages.`);
+             console.log(`Parsed ${allMessages.length} valid user messages.`);
         }
 
         function parseDate(dateStr) {
-            // Try M/D/YY format first (common in US WhatsApp exports)
-             let parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-             if (parts) {
-                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-                 let day = parseInt(parts[2], 10);
-                 let year = parseInt(parts[3], 10) + 2000; // Assuming 21st century
-                 return new Date(year, month, day);
-             }
-
-             // Try DD/MM/YYYY format
-             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             // Try DD/MM/YYYY format (common in iOS exports and non-US Android)
+             let parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
              if (parts) {
                  let day = parseInt(parts[1], 10);
                  let month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
                  let year = parseInt(parts[3], 10);
-                 return new Date(year, month, day);
+                  // Basic sanity check for DD/MM order
+                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
+                    const date = new Date(year, month, day);
+                    // Check if the constructed date is valid (accounts for days in month)
+                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+                        return date;
+                    }
+                 }
              }
 
-            // Try MM/DD/YYYY format
-            parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            // Try M/D/YY format (common in US Android exports)
+             parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
              if (parts) {
                  let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
                  let day = parseInt(parts[2], 10);
-                 let year = parseInt(parts[3], 10);
-                  // Basic ambiguity check (if day > 12, it's likely MM/DD)
-                 if (day <= 12) {
-                     // Could be MM/DD or DD/MM, assume MM/DD for now, might need more robust logic
-                     // Or try creating both and see which is valid? For simplicity, stick to one guess.
-                     console.warn(`Date format ${dateStr} is ambiguous (could be MM/DD/YYYY or DD/MM/YYYY). Assuming MM/DD/YYYY.`);
+                 let year = parseInt(parts[3], 10) + 2000; // Assuming 21st century
+                  // Basic sanity check for MM/DD order
+                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
+                    const date = new Date(year, month, day);
+                     // Check if the constructed date is valid
+                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+                        return date;
+                    }
                  }
-                  return new Date(year, month, day);
              }
 
+            // Try M/D/YYYY format (less common but possible)
+            parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (parts) {
+                 let month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+                 let day = parseInt(parts[2], 10);
+                 let year = parseInt(parts[3], 10);
+                  // Basic sanity check for MM/DD order
+                 if (month >= 0 && month < 12 && day > 0 && day <= 31) {
+                    const date = new Date(year, month, day);
+                    // Check if the constructed date is valid
+                    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+                        return date;
+                    }
+                 }
+            }
+
+
              // Add more parsing attempts here if needed for other formats
-             console.error("Failed to parse date format:", dateStr);
+             // console.error("Failed to parse date format:", dateStr); // Reduce console noise
              return null; // Indicate failure
          }
 
@@ -264,10 +305,12 @@
             if (allMessages.length > 0) {
                  populateMonthOptions();
                  timeframeSelect.disabled = false;
-                 timeframeSelect.addEventListener('change', analyzeChat); // Add listener only once file is loaded
+                  // Ensure event listener isn't added multiple times
+                 timeframeSelect.removeEventListener('change', analyzeChat);
+                 timeframeSelect.addEventListener('change', analyzeChat);
                  analyzeChat(); // Perform initial analysis for "Lifetime"
              } else {
-                 resultsDiv.textContent = 'No valid messages found in the file. Check format?';
+                 resultsDiv.textContent = 'No valid user messages found or parsed in the file. Check file format/content?';
                  timeframeSelect.disabled = true;
              }
         }
@@ -293,30 +336,44 @@
             let startDate = null;
             let endDate = null;
 
+             // Set time to 00:00:00 for start dates and 23:59:59 for end dates for accurate comparison
+             now.setHours(23, 59, 59, 999);
+
             if (selectedTimeframe.startsWith('month_')) {
                  const [year, month] = selectedTimeframe.substring(6).split('-').map(Number);
-                 startDate = new Date(year, month - 1, 1); // Month is 0-indexed
+                 startDate = new Date(year, month - 1, 1); // Month is 0-indexed, start of day
+                 startDate.setHours(0, 0, 0, 0);
                  endDate = new Date(year, month, 0); // Last day of the month
+                 endDate.setHours(23, 59, 59, 999); // End of day
             } else {
+                 endDate = new Date(); // Use current date/time as end for relative periods
+                 endDate.setHours(23, 59, 59, 999);
+
                  switch (selectedTimeframe) {
                     case 'last_1_month':
-                        startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                        startDate = new Date();
+                        startDate.setMonth(startDate.getMonth() - 1);
                         break;
                     case 'last_3_months':
-                        startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+                         startDate = new Date();
+                         startDate.setMonth(startDate.getMonth() - 3);
                         break;
                     case 'last_6_months':
-                         startDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+                         startDate = new Date();
+                          startDate.setMonth(startDate.getMonth() - 6);
                          break;
                      case 'last_12_months':
-                         startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                          startDate = new Date();
+                          startDate.setFullYear(startDate.getFullYear() - 1);
                          break;
                      case 'lifetime':
                      default:
                          startDate = null; // No start date means include all
                          break;
                  }
-                 endDate = now; // End date is always 'now' for relative periods
+                 if(startDate) {
+                    startDate.setHours(0, 0, 0, 0); // Start of the day
+                 }
             }
 
 
@@ -328,17 +385,10 @@
                  let includeMessage = false;
                  if (!startDate) { // Lifetime
                      includeMessage = true;
-                 } else if (selectedTimeframe.startsWith('month_')) {
-                     // For specific month, check if date is within month boundaries
-                     if (msg.date >= startDate && msg.date <= new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999)) { // Include full end day
-                         includeMessage = true;
-                     }
-                 } else {
-                     // For relative periods (last N months)
-                     if (msg.date >= startDate && msg.date <= endDate) {
-                         includeMessage = true;
-                     }
+                 } else if (msg.date >= startDate && msg.date <= endDate) { // Check if date is within bounds
+                     includeMessage = true;
                  }
+
 
                  if (includeMessage) {
                      messageCounts[msg.sender] = (messageCounts[msg.sender] || 0) + 1;
@@ -361,7 +411,7 @@
 
             let tableHTML = `
                 <h3>Activity Ranking (${timeframeSelect.options[timeframeSelect.selectedIndex].text})</h3>
-                <p>Total messages in this period: ${totalMessagesInPeriod}</p>
+                <p>Total messages found in this period: ${totalMessagesInPeriod}</p>
                 <table>
                     <thead>
                         <tr>
