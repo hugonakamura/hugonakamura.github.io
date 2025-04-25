@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="ad.size" content="width=100%,height=100%">
+    <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1.0, minimum-scale=1.0,maximum-scale=1.0"/>
+
+    <title>Sudoku - Fill The Numbers</title>
+    <style>
+        /* Basic Reset & Body Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent; /* Remove blue tap highlight on mobile */
+            user-select: none; /* Prevent text selection */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Prevent scrolling */
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0; /* Light background for contrast */
+        }
+
+        /* Playable Area */
+        .playable {
+            width: 100%;
+            height: 100%;
+            position: relative; /* Needed for some ad frameworks */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Game Container - Manages overall layout */
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            /* Default: Portrait */
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between; /* Pushes elements apart vertically */
+            padding: 5px;
+            position: relative; /* Context for absolute positioning */
+        }
+
+        /* --- COLUMN CONTAINERS (Used for layout switching) --- */
+        #landscape-left-column,
+        #landscape-right-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%; /* Full width in portrait */
+        }
+
+        /* --- PORTRAIT STYLES (Default) --- */
+
+        /* Title */
+        #game-title {
+            font-size: clamp(18px, 5vw, 24px); /* Responsive font size */
+            font-weight: bold;
+            text-align: center;
+            margin-top: 2vh; /* Space from top */
+            margin-bottom: 1vh;
+            color: #333;
+            /* No order needed now, relies on HTML structure */
+        }
+
+        /* Mistakes Counter */
+        #mistakes-counter {
+            font-size: clamp(14px, 3.5vw, 18px);
+            text-align: center;
+            margin-bottom: 2vh;
+            color: #555;
+             /* No order needed */
+        }
+
+        /* Sudoku Grid Container */
+        #sudoku-grid-container {
+             width: 90vw; /* Responsive width */
+             max-width: 400px; /* Max width for larger screens/tablets */
+             aspect-ratio: 1 / 1; /* Maintain square shape */
+             margin: 0 auto 2vh auto; /* Center horizontally, add bottom margin */
+             /* No order needed */
+             display: flex; /* Use flex to center the table */
+             justify-content: center;
+             align-items: center;
+        }
+
+        /* Sudoku Grid Table */
+        #sudoku-grid {
+            border-collapse: collapse;
+            border: 2px solid black;
+            width: 100%;
+            height: 100%;
+            background-color: white;
+        }
+
+        #sudoku-grid td {
+            border: 1px solid #ccc;
+            width: 11.111%; /* 100% / 9 */
+            height: 11.111%;
+            text-align: center;
+            vertical-align: middle;
+            font-size: clamp(16px, 4vw, 22px); /* Responsive font size */
+            cursor: pointer;
+            position: relative;
+             font-weight: 500;
+             color: #007bff; /* Default color for user input */
+        }
+
+        /* Thick borders for 3x3 regions */
+        #sudoku-grid tr:nth-child(3n) td {
+            border-bottom: 2px solid black;
+        }
+        #sudoku-grid td:nth-child(3n) {
+            border-right: 2px solid black;
+        }
+        /* Remove double border at corners */
+        #sudoku-grid tr:last-child td { border-bottom: none; }
+        #sudoku-grid td:last-child { border-right: none; }
+
+
+        /* Cell States */
+        #sudoku-grid td.prefilled {
+            font-weight: bold;
+            color: #333; /* Darker color for prefilled numbers */
+            cursor: default;
+             background-color: #eee; /* Slightly different background */
+        }
+        #sudoku-grid td.selected {
+            background-color: #cce5ff; /* Light blue highlight */
+        }
+        #sudoku-grid td.incorrect {
+            color: red !important; /* Make incorrect numbers red */
+            animation: shake 0.3s; /* Simple shake animation */
+        }
+        #sudoku-grid td.hinted {
+            color: #28a745; /* Green for hinted numbers */
+            font-weight: bold;
+        }
+
+        /* Shake animation for incorrect input */
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-3px); }
+          75% { transform: translateX(3px); }
+        }
+
+
+        /* Hint Area */
+        #hint-area {
+            position: relative; /* Needed for absolute positioning of the counter */
+            margin-top: 2vh;
+            /* No order needed */
+            display: inline-block; /* Allow centering */
+            text-align: center; /* Center button within area */
+        }
+
+        #hint-button {
+            padding: 8px 20px;
+            font-size: clamp(14px, 3.5vw, 18px);
+            cursor: pointer;
+            background-color: #6c757d; /* Greyish button */
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+         #hint-button:disabled {
+             background-color: #aaa;
+             cursor: not-allowed;
+         }
+
+
+        #hint-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #007bff; /* Blue bubble */
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+
+        /* Number Buttons Row */
+        #number-buttons {
+            display: flex;
+            justify-content: center; /* Center buttons horizontally */
+            align-items: center;
+            width: 100%;
+            margin-top: 2vh;
+            margin-bottom: 1vh;
+            padding: 0 5px; /* Prevent buttons touching edges */
+            white-space: nowrap; /* Ensure buttons stay on one line */
+            overflow-x: auto; /* Add scroll if needed on extremely narrow screens */
+            -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+            scrollbar-width: none; /* Hide scrollbar (Firefox) */
+            /* No order needed */
+        }
+        #number-buttons::-webkit-scrollbar {
+            display: none; /* Hide scrollbar (Chrome, Safari, Edge) */
+        }
+
+
+        #number-buttons button {
+            min-width: 35px; /* Minimum size */
+            height: 35px;
+             width: 8vw; /* Responsive width */
+            max-width: 45px; /* Max size */
+            aspect-ratio: 1 / 1; /* Keep square */
+            margin: 0 1vw; /* Spacing between buttons */
+            font-size: clamp(16px, 4vw, 20px);
+            font-weight: bold;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #e9ecef; /* Light grey background */
+            color: #333;
+             display: flex;
+             justify-content: center;
+             align-items: center;
+        }
+        #number-buttons button.active {
+            background-color: #007bff;
+            color: white;
+        }
+
+
+        /* Play Now Button */
+        #play-button {
+            width: 80%;
+            max-width: 300px; /* Max width */
+            padding: 12px 0; /* Vertical padding */
+            font-size: clamp(18px, 5vw, 22px);
+            font-weight: bold;
+            color: white;
+            background-color: #dc3545; /* Red button */
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            margin-top: 1vh; /* Ensure some space above in portrait */
+            margin-bottom: 2vh; /* Space from bottom */
+            /* No order needed */
+            /* flex-shrink: 0; /* Prevent shrinking */
+        }
+
+         /* --- LANDSCAPE STYLES --- */
+        @media (orientation: landscape) {
+             #game-container {
+                 flex-direction: row; /* Side-by-side layout */
+                 justify-content: space-around; /* Space out columns */
+                 align-items: center; /* Center columns vertically */
+                 padding: 5px 10px; /* Adjust padding */
+             }
+
+            #landscape-left-column {
+                 width: 48%; /* <<< ADJUSTED: Slightly more balanced */
+                 height: 100%;
+                 justify-content: center;
+                 padding: 5px;
+                 /* No changes needed below here for this element */
+            }
+
+            #landscape-right-column {
+                 width: 48%; /* <<< ADJUSTED: Slightly more balanced */
+                 height: 100%; /* Use full height */
+                 justify-content: space-around; /* Distribute vertical space */
+                 align-items: center; /* Keep horizontal centering */
+                 padding: 5px;
+                 /* No changes needed below here for this element */
+            }
+
+
+            #landscape-left-column {
+                 width: 50%; /* Adjust width distribution */
+                 /* order: 1; */ /* Define order if needed, but structure should handle it */
+            }
+
+            #landscape-right-column {
+                 width: 45%; /* Adjust width distribution */
+                 justify-content: space-around; /* Space out items vertically */
+                 /* order: 2; */
+            }
+
+
+             /* --- Adjustments for items within columns in landscape --- */
+
+             /* Left Column Items */
+            #mistakes-counter {
+                 margin-bottom: 1vh; /* Reduce bottom margin */
+                 font-size: clamp(12px, 2.5vh, 16px);
+            }
+            #sudoku-grid-container {
+                width: auto; /* Let aspect ratio define width based on height */
+                height: 85vh; /* Limit height based on viewport height */
+                max-height: min(85vw, 400px); /* Limit height relative to width too, max absolute */
+                max-width: 90%; /* Max width within its column */
+                margin-bottom: 0; /* Remove bottom margin */
+            }
+             #sudoku-grid td {
+                 font-size: clamp(14px, 3vh, 20px); /* Adjust font size */
+            }
+
+             /* Right Column Items */
+            #game-title {
+                 margin-top: 0;
+                 margin-bottom: 1vh;
+                 font-size: clamp(16px, 4vh, 22px);
+             }
+            #hint-area {
+                 margin-top: 1vh;
+                 margin-bottom: 1vh;
+            }
+             #hint-button { padding: 6px 15px; font-size: clamp(12px, 2.5vh, 16px); }
+             #hint-count { width: 18px; height: 18px; font-size: 11px; top: -6px; right: -6px; }
+
+           #number-buttons {
+                 margin: 1vh 0; /* Vertical margin only */
+                 padding: 0; /* No padding on the container */
+                 width: 100%; /* Takes width from parent column (now 48%) */
+                 max-width: 350px; /* Keep the overall max width cap */
+                 display: flex;
+                 align-items: center;
+                 /* Use space-around for even distribution including edges */
+                 justify-content: space-around; /* <<< CHANGED back */
+                 white-space: nowrap;
+                 overflow: visible; /* Ensure nothing is clipped by container */
+            }
+
+
+             #number-buttons button {
+                 /* Remove vw width completely */
+                 width: auto;    /* <<< CHANGED */
+                 /* Rely on max-width and min-width */
+                 min-width: 28px;
+                 max-width: 35px;  /* <<< REDUCED */
+                 height: auto;
+                 aspect-ratio: 1 / 1; /* Keep square */
+                 /* Keep minimal fixed margins */
+                 margin: 0 1px;
+                 font-size: clamp(15px, 3.5vw, 18px);
+                 font-weight: bold;
+                 cursor: pointer;
+                 border: 1px solid #ccc;
+                 border-radius: 5px;
+                 background-color: #e9ecef;
+                 color: #333;
+                 display: flex;
+                 justify-content: center;
+                 align-items: center;
+                 flex-shrink: 0; /* Prevent shrinking */
+                 /* Optional: Allow growing if you prefer them to fill space */
+                 /* flex-grow: 1; */
+            }
+
+
+            #play-button {
+                 margin-top: 1vh;
+                 margin-bottom: 0;
+                 width: 90%;
+                 max-width: 250px;
+                 padding: 10px 0;
+                 font-size: clamp(16px, 4vh, 20px);
+            }
+        }
+
+        /* Small adjustments for very small screens if needed */
+        @media (max-height: 400px) and (orientation: portrait) {
+            #game-title { margin-top: 1vh; margin-bottom: 0.5vh; font-size: 16px; }
+            #mistakes-counter { margin-bottom: 1vh; font-size: 12px; }
+            #sudoku-grid-container { margin-bottom: 1vh; }
+             #hint-area { margin-top: 1vh; }
+             #hint-button { padding: 6px 15px; font-size: 13px; }
+             #hint-count { width: 18px; height: 18px; font-size: 11px; top: -5px; right: -5px;}
+             #number-buttons { margin-top: 1vh; margin-bottom: 0.5vh; }
+             #number-buttons button { min-width: 30px; height: 30px; width: 7vw; }
+             #play-button { padding: 8px 0; font-size: 16px; margin-bottom: 1vh;}
+        }
+
+
+    </style>
+</head>
+<body>
+    <div id="playable" class="playable">
+        <div id="game-container">
+            <div id="landscape-left-column">
+                <div id="mistakes-counter">Mistakes: 0/3</div>
+                <div id="sudoku-grid-container">
+                    <table id="sudoku-grid">
+                        </table>
+                </div>
+            </div>
+
+            <div id="landscape-right-column">
+                <h1 id="game-title">FILL THE NUMBERS</h1>
+                <div id="hint-area">
+                    <button id="hint-button">Hint</button>
+                    <span id="hint-count">3</span>
+                </div>
+                <div id="number-buttons">
+                    </div>
+                <button id="play-button">PLAY NOW</button>
+            </div>
+            </div>
+        </div>
+
+    <script>
+        // --- MRAID/Ad Framework Functions (Provided) ---
+        function setVolumeChangeCallback(callback) {
+            if (typeof mraid !== typeof undefined) {
+                if (mraid.getAudioVolume) {
+                    callback(!!mraid.getAudioVolume()); // 0 to 100
+                }
+                var onVolumeChange = function(volumePercentage) {
+                    callback(!!volumePercentage); // 0 to 100
+                }
+                mraid.addEventListener("audioVolumeChange", onVolumeChange);
+            } else {
+                console.error('mraid is undefined');
+                // Fallback for testing outside MRAID: assume volume is on
+                 // callback(true);
+            }
+        }
+
+        function gameStart() {
+            console.log("Game Start callback triggered");
+            // Placeholder for any specific start actions required by the ad framework
+         }
+        function gameClose() {
+             console.log("Game Close callback triggered");
+             // Placeholder for any specific close actions required by the ad framework
+        }
+
+        // --- Store Opening Function ---
+        let storeOpened = false; // Prevent multiple calls
+        function openStore() {
+            if (storeOpened) {
+                console.log("Store already opened or opening.");
+                return;
+            }
+            storeOpened = true;
+            console.log("Attempting to open store...");
+            clearTimeout(timerTimeoutId); // Clear timer if game ends early
+
+            var url = /android/i.test(navigator.userAgent || navigator.vendor || window.opera)
+                ? 'https://play.google.com/store/apps/details?id=com.easygames.sudoku'
+                : 'https://apps.apple.com/us/app/sudoku-brain-classic-puzzle/id6743128106?platform=iphone';
+
+            // mintegral
+            if (window.gameEnd) {
+                 console.log("Calling window.gameEnd()");
+                 window.gameEnd();
+             } else {
+                 console.log("window.gameEnd is not defined");
+             }
+
+            if (window.install) {
+                console.log("Calling window.install()");
+                 window.install();
+            } else {
+                console.log("window.install is not defined");
+             }
+
+            // mraid
+            if (window.mraid && mraid.open) {
+                 console.log("Calling mraid.open with URL:", url);
+                 mraid.open(url);
+            } else {
+                 console.log("window.mraid or mraid.open is not defined. Redirecting fallback.");
+                 // Fallback if MRAID isn't available
+                 window.location.href = url;
+            }
+        }
+
+
+        // --- Game Configuration ---
+        window.Flags = {
+            timer: -1,                  // Countdown in seconds. -1 means no timer.
+            autoOpenStoreAfterHintsUsed: true, // If true, call openStore() when all hints are used.
+            maxMistakes: 3,             // Maximum allowed mistakes.
+            initialHints: 3             // Number of hints available at start.
+        };
+
+        // --- Sudoku Game Logic ---
+        const gridElement = document.getElementById('sudoku-grid');
+        const mistakesCounterElement = document.getElementById('mistakes-counter');
+        const hintButtonElement = document.getElementById('hint-button');
+        const hintCountElement = document.getElementById('hint-count');
+        const numberButtonsElement = document.getElementById('number-buttons');
+        const playButtonElement = document.getElementById('play-button');
+        const gameContainerElement = document.getElementById('game-container');
+
+        let currentBoard = [];
+        let solutionBoard = [];
+        let initialBoard = []; // Keep track of prefilled cells
+        let selectedCell = null; // { row: r, col: c, element: td }
+        let mistakes = 0;
+        let hintsRemaining = window.Flags.initialHints;
+        let gameEnded = false; // Ensure openStore is called only once
+        let timerTimeoutId = null;
+
+        // Simple Hardcoded Puzzles (Replace with more or a generator if needed)
+        const puzzles = [
+             { // Easy Puzzle Example
+                initial: [
+                    [5,3,0,0,7,0,0,0,0],
+                    [6,0,0,1,9,5,0,0,0],
+                    [0,9,8,0,0,0,0,6,0],
+                    [8,0,0,0,6,0,0,0,3],
+                    [4,0,0,8,0,3,0,0,1],
+                    [7,0,0,0,2,0,0,0,6],
+                    [0,6,0,0,0,0,2,8,0],
+                    [0,0,0,4,1,9,0,0,5],
+                    [0,0,0,0,8,0,0,7,9]
+                ],
+                solution: [
+                    [5,3,4,6,7,8,9,1,2],
+                    [6,7,2,1,9,5,3,4,8],
+                    [1,9,8,3,4,2,5,6,7],
+                    [8,5,9,7,6,1,4,2,3],
+                    [4,2,6,8,5,3,7,9,1],
+                    [7,1,3,9,2,4,8,5,6],
+                    [9,6,1,5,3,7,2,8,4],
+                    [2,8,7,4,1,9,6,3,5],
+                    [3,4,5,2,8,6,1,7,9]
+                ]
+            },
+             { // Another Puzzle Example
+                 initial: [
+                    [0,0,0,2,6,0,7,0,1],
+                    [6,8,0,0,7,0,0,9,0],
+                    [1,9,0,0,0,4,5,0,0],
+                    [8,2,0,1,0,0,0,4,0],
+                    [0,0,4,6,0,2,9,0,0],
+                    [0,5,0,0,0,3,0,2,8],
+                    [0,0,9,3,0,0,0,7,4],
+                    [0,4,0,0,5,0,0,3,6],
+                    [7,0,3,0,1,8,0,0,0]
+                 ],
+                 solution: [
+                    [4,3,5,2,6,9,7,8,1],
+                    [6,8,2,5,7,1,4,9,3],
+                    [1,9,7,8,3,4,5,6,2],
+                    [8,2,6,1,9,5,3,4,7],
+                    [3,7,4,6,8,2,9,1,5],
+                    [9,5,1,7,4,3,6,2,8],
+                    [5,1,9,3,2,6,8,7,4],
+                    [2,4,8,9,5,7,1,3,6],
+                    [7,6,3,4,1,8,2,5,9]
+                 ]
+             }
+        ];
+
+        function selectRandomPuzzle() {
+            const randomIndex = Math.floor(Math.random() * puzzles.length);
+            const puzzle = puzzles[randomIndex];
+            initialBoard = puzzle.initial.map(row => [...row]); // Deep copy
+            currentBoard = puzzle.initial.map(row => [...row]); // Deep copy
+            solutionBoard = puzzle.solution;
+        }
+
+        function createGrid() {
+            gridElement.innerHTML = ''; // Clear existing grid
+            const tbody = document.createElement('tbody');
+            for (let r = 0; r < 9; r++) {
+                const row = document.createElement('tr');
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.createElement('td');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+
+                    const initialValue = initialBoard[r][c];
+                    if (initialValue !== 0) {
+                        cell.textContent = initialValue;
+                        cell.classList.add('prefilled');
+                    } else {
+                        cell.addEventListener('click', handleCellClick);
+                    }
+                    row.appendChild(cell);
+                }
+                 tbody.appendChild(row);
+            }
+            gridElement.appendChild(tbody);
+        }
+
+        function createNumberButtons() {
+            numberButtonsElement.innerHTML = ''; // Clear existing buttons
+            for (let i = 1; i <= 9; i++) {
+                const button = document.createElement('button');
+                button.textContent = i;
+                button.dataset.number = i;
+                button.addEventListener('click', handleNumberInput);
+                numberButtonsElement.appendChild(button);
+            }
+        }
+
+        function handleCellClick(event) {
+             if (gameEnded) return;
+
+            const clickedCell = event.target;
+            const row = parseInt(clickedCell.dataset.row);
+            const col = parseInt(clickedCell.dataset.col);
+
+             // If it's prefilled, do nothing
+             if (clickedCell.classList.contains('prefilled')) {
+                 // Deselect any currently selected cell
+                 if (selectedCell) {
+                     selectedCell.element.classList.remove('selected');
+                     selectedCell = null;
+                 }
+                 return;
+             }
+
+
+            // Deselect previous cell
+            if (selectedCell) {
+                selectedCell.element.classList.remove('selected');
+            }
+
+            // If clicking the same cell, deselect it
+             if (selectedCell && selectedCell.row === row && selectedCell.col === col) {
+                 selectedCell = null;
+             } else {
+                 // Select new cell
+                 clickedCell.classList.add('selected');
+                 selectedCell = { row: row, col: col, element: clickedCell };
+             }
+        }
+
+        function handleNumberInput(event) {
+            if (!selectedCell || gameEnded) return;
+
+            const number = parseInt(event.target.dataset.number);
+            const { row, col, element } = selectedCell;
+
+            // Clear any previous incorrect flash
+            element.classList.remove('incorrect');
+
+            if (solutionBoard[row][col] === number) {
+                // Correct number
+                currentBoard[row][col] = number;
+                element.textContent = number;
+                element.classList.remove('selected', 'hinted'); // Remove selected/hinted status on correct manual input
+                selectedCell = null; // Deselect after input
+
+                // Check for win condition
+                if (isPuzzleComplete()) {
+                    handleGameEnd(true); // Indicate win
+                }
+            } else {
+                // Incorrect number
+                mistakes++;
+                updateMistakesDisplay();
+                 element.classList.add('incorrect');
+                 // Optional: Remove incorrect style after a delay
+                 // setTimeout(() => element.classList.remove('incorrect'), 500);
+
+                if (mistakes >= window.Flags.maxMistakes) {
+                    handleGameEnd(false); // Indicate loss due to mistakes
+                }
+            }
+        }
+
+        function handleHint() {
+            if (hintsRemaining <= 0 || gameEnded) return;
+
+            // Find the first empty cell
+            let emptyCell = null;
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (currentBoard[r][c] === 0) {
+                        emptyCell = { row: r, col: c };
+                        break;
+                    }
+                }
+                if (emptyCell) break;
+            }
+
+            if (emptyCell) {
+                 hintsRemaining--;
+                 updateHintDisplay();
+
+                 const { row, col } = emptyCell;
+                 const correctNumber = solutionBoard[row][col];
+                 currentBoard[row][col] = correctNumber;
+
+                // Update the UI
+                 const cellElement = gridElement.querySelector(`td[data-row="${row}"][data-col="${col}"]`);
+                 if (cellElement) {
+                     cellElement.textContent = correctNumber;
+                     cellElement.classList.add('hinted'); // Style hinted cells
+                     cellElement.removeEventListener('click', handleCellClick); // Make hinted cell non-interactive temporarily? Or keep it clickable? Let's keep it.
+                     // If a selected cell was just hinted, deselect it
+                     if (selectedCell && selectedCell.row === row && selectedCell.col === col) {
+                        selectedCell.element.classList.remove('selected');
+                         selectedCell = null;
+                     }
+                 }
+
+
+                // Check for win condition after hint
+                if (isPuzzleComplete()) {
+                    handleGameEnd(true); // Indicate win
+                 } else if (hintsRemaining === 0 && window.Flags.autoOpenStoreAfterHintsUsed) {
+                     // Check if hints ran out and auto-open is enabled
+                     handleGameEnd(false); // Indicate loss due to hints used
+                 }
+
+            } else {
+                // No empty cells left - puzzle should be complete or stuck?
+                console.log("No empty cells to hint.");
+                 // Disable hint button if no empty cells?
+                 hintButtonElement.disabled = true;
+            }
+        }
+
+        function updateMistakesDisplay() {
+            mistakesCounterElement.textContent = `Mistakes: ${mistakes}/${window.Flags.maxMistakes}`;
+        }
+
+        function updateHintDisplay() {
+            hintCountElement.textContent = hintsRemaining;
+            hintButtonElement.disabled = hintsRemaining <= 0 || gameEnded;
+        }
+
+        function isPuzzleComplete() {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (currentBoard[r][c] === 0 || currentBoard[r][c] !== solutionBoard[r][c]) {
+                        return false; // Found an empty or incorrect cell
+                    }
+                }
+            }
+            return true; // All cells are filled correctly
+        }
+
+        function handleGameEnd(isWin) {
+            if (gameEnded) return; // Prevent multiple calls
+            gameEnded = true;
+            console.log(`Game ended. Win: ${isWin}`);
+
+             // Disable interactions
+             hintButtonElement.disabled = true;
+             // Consider removing cell listeners or adding an overlay
+
+            // Clear timer if running
+            if (timerTimeoutId) {
+                clearTimeout(timerTimeoutId);
+                timerTimeoutId = null;
+            }
+
+            // Trigger store opening
+             // Add a small delay for user to see the final state/mistake count? (Optional)
+            setTimeout(openStore, 300); // Delay slightly
+        }
+
+         function startTimer() {
+             if (window.Flags.timer > 0 && !gameEnded) {
+                 console.log(`Starting timer for ${window.Flags.timer} seconds.`);
+                 if (timerTimeoutId) clearTimeout(timerTimeoutId); // Clear any existing timer
+
+                 timerTimeoutId = setTimeout(() => {
+                     if (!gameEnded) { // Check again in case game ended by other means
+                         console.log("Timer expired!");
+                         handleGameEnd(false); // Indicate loss due to time out
+                     }
+                 }, window.Flags.timer * 1000);
+             }
+         }
+
+         // Adjust layout based on orientation (primarily adds class to body)
+         function handleOrientationChange() {
+             const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+             if (isLandscape) {
+                 document.body.classList.add('landscape');
+                 document.body.classList.remove('portrait');
+                 console.log("Orientation changed to: landscape");
+             } else {
+                 document.body.classList.add('portrait');
+                 document.body.classList.remove('landscape');
+                 console.log("Orientation changed to: portrait");
+             }
+             // CSS now handles the layout changes based on the body class and media query
+         }
+
+
+        // --- Game Initialization ---
+        function initGame() {
+            console.log("Initializing Sudoku Game");
+            gameEnded = false; // Reset game ended flag
+             storeOpened = false; // Reset store opened flag
+            mistakes = 0;
+            hintsRemaining = window.Flags.initialHints;
+            selectedCell = null;
+
+            selectRandomPuzzle();
+            createGrid();
+            createNumberButtons();
+            updateMistakesDisplay();
+            updateHintDisplay();
+
+             // Add event listeners
+             hintButtonElement.addEventListener('click', handleHint);
+             playButtonElement.addEventListener('click', () => handleGameEnd(false)); // Play Now button always counts as non-win end
+
+             // Listen for orientation changes
+             window.matchMedia("(orientation: landscape)").addEventListener('change', handleOrientationChange);
+             // Initial orientation check
+             handleOrientationChange(); // Set initial body class
+
+            // Start timer if configured
+            startTimer();
+
+            console.log("Sudoku Initialized and Ready");
+            gameStart(); // Notify ad framework game has started internally
+        }
+
+
+        // --- MRAID/Ad Framework Bootstrapping (Provided/Modified) ---
+        window.onload = function () {
+             console.log("Window loaded");
+             if (window.gameReady) {
+                 console.log("Calling window.gameReady()");
+                 window.gameReady();
+             } else {
+                 console.log("window.gameReady is not defined");
+             }
+
+
+            function startGameFlow() {
+                 console.log("startGameFlow called");
+                 //document.removeEventListener('visibility-visible', startGameFlow); // Ensure it runs only once if triggered by visibility
+                 setVolumeChangeCallback((isVolumeOn) => {
+                     console.log("Volume status:", isVolumeOn);
+                     // You could potentially mute/unmute internal game sounds here if you add any
+                 });
+                // --- START THE ACTUAL GAME ---
+                initGame(); // <<< Initialize and start our Sudoku game
+                // ----------------------------
+            }
+
+            function boot(startCallback) {
+                console.log("Boot function called");
+                if (typeof mraid !== typeof undefined) {
+                    console.log("MRAID detected. Current state:", mraid.getState ? mraid.getState() : 'N/A');
+                    if (mraid.getState && mraid.getState() === "loading") {
+                        var onReadyCallback = function () {
+                            console.log("MRAID ready event fired.");
+                            mraid.removeEventListener("ready", onReadyCallback);
+                            checkViewable(startCallback);
+                        }
+                         console.log("MRAID is loading. Adding ready listener.");
+                        mraid.addEventListener("ready", onReadyCallback);
+                    } else {
+                         console.log("MRAID is not loading (or state unknown). Checking viewable status directly.");
+                        checkViewable(startCallback);
+                    }
+                } else {
+                     console.warn('MRAID is undefined. Starting game immediately.');
+                    startCallback(); // Start immediately if MRAID is not present
+                }
+            }
+
+             function checkViewable(startCallback) {
+                 // Ensure mraid and isViewable exist before calling
+                 if (mraid && mraid.isViewable) {
+                     if (mraid.isViewable()) {
+                         console.log("MRAID is viewable. Starting game.");
+                         startCallback();
+                     } else {
+                         console.log("MRAID is not viewable. Adding viewableChange listener.");
+                         var onVisibleCallback = function (isVisible) {
+                             console.log("MRAID viewableChange event fired. Is visible:", isVisible);
+                             if (!isVisible) {
+                                 return;
+                             }
+                             mraid.removeEventListener("viewableChange", onVisibleCallback);
+                             console.log("MRAID became viewable. Starting game.");
+                             startCallback();
+                         }
+                         // Ensure addEventListener exists
+                         if (mraid.addEventListener) {
+                            mraid.addEventListener("viewableChange", onVisibleCallback);
+                         } else {
+                             console.error("MRAID detected but addEventListener is missing. Cannot wait for viewableChange.");
+                             startCallback(); // Attempt to start anyway
+                         }
+                     }
+                 } else {
+                     console.warn("MRAID or mraid.isViewable is not available. Starting game without viewability check.");
+                     startCallback(); // Fallback if viewability check isn't possible
+                 }
+             }
+
+            boot(startGameFlow);
+        };
+
+    </script>
+</body>
+</html>
