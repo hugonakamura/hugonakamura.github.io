@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spritesheet Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for better visual feedback */
+        #editorCanvas {
+            cursor: crosshair;
+            background-color: #f0f0f0; /* Light background for empty canvas */
+            background-image:
+                linear-gradient(45deg, #ccc 25%, transparent 25%),
+                linear-gradient(135deg, #ccc 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ccc 75%),
+                linear-gradient(135deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px; /* Size of the checkerboard squares */
+            background-position: 0 0, 10px 0, 10px -10px, 0px 10px; /* Positioning for checkerboard */
+        }
+        .frame-item {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .frame-item.selected {
+            background-color: #bfdbfe; /* Light blue for selected */
+        }
+        .frame-item:hover {
+            background-color: #e5e7eb; /* Light gray on hover */
+        }
+        #editorCanvasOverlay {
+           position: absolute;
+           top: 0;
+           left: 0;
+           pointer-events: none; /* Allows clicks to go through to the underlying canvas */
+        }
+         #manualCanvasOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none; /* Allows clicks to go through to the underlying canvas */
+        }
+         /* Style for draggable grid lines (visual hint) */
+        #editorCanvasOverlay.grid-hover-row { cursor: ns-resize; }
+        #editorCanvasOverlay.grid-hover-col { cursor: ew-resize; }
+        #editorCanvasOverlay.grid-dragging { cursor: grabbing; }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 120px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 0;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -60px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #555 transparent transparent transparent;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100 font-sans p-4 md:p-8">
+
+    <div class="container mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center text-gray-800">Spritesheet Editor</h1>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <div class="lg:col-span-1 flex flex-col space-y-6">
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">1. Load Image</h2>
+                    <label for="imageLoader" class="block mb-2 text-sm font-medium text-gray-900">Upload Spritesheet:</label>
+                    <input type="file" id="imageLoader" accept="image/png, image/jpeg, image/gif" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-blue-500 p-2">
+                    <p id="imageName" class="mt-2 text-sm text-gray-600 truncate">No image loaded.</p>
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">2. Define Frames</h2>
+                     <div class="mb-4">
+                        <label class="block mb-2 text-sm font-medium text-gray-900">Mode:</label>
+                        <div class="flex space-x-2">
+                            <button id="gridModeBtn" class="flex-1 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">Grid</button>
+                            <button id="manualModeBtn" class="flex-1 bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">Manual Draw</button>
+                        </div>
+                    </div>
+
+                    <div id="gridOptions" class="space-y-3">
+                        <p class="text-sm text-gray-600">Define a grid to automatically create frames.</p>
+                        <div class="flex space-x-4">
+                            <div class="flex-1">
+                                <label for="gridCols" class="block text-sm font-medium text-gray-700">Columns:</label>
+                                <input type="number" id="gridCols" value="4" min="1" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                            <div class="flex-1">
+                                <label for="gridRows" class="block text-sm font-medium text-gray-700">Rows:</label>
+                                <input type="number" id="gridRows" value="4" min="1" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            </div>
+                        </div>
+                        <button id="applyGrid" class="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">Apply Grid</button>
+                         <p class="text-xs text-gray-500 mt-1">Note: Applying grid will overwrite existing frames.</p>
+                    </div>
+                     <div id="manualOptions" class="hidden space-y-3">
+                         <p class="text-sm text-gray-600">Click and drag on the image editor to define frame boundaries.</p>
+                         <button id="clearFramesBtn" class="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">Clear All Frames</button>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded border flex-grow min-h-[200px]">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">3. Frame List</h2>
+                    <div id="frameListContainer" class="bg-white border rounded h-64 overflow-y-auto">
+                        <ul id="frameList" class="divide-y divide-gray-200 p-2">
+                            <li class="text-gray-500 text-center py-4">Load an image and define frames.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-1 flex flex-col space-y-6">
+                <div class="bg-gray-50 p-4 rounded border">
+                     <h2 class="text-xl font-semibold mb-3 text-gray-700">Editor View</h2>
+                     <p id="editorInstructions" class="text-sm text-gray-600 mb-2">Load an image to start editing.</p>
+                     <div class="relative w-full aspect-square border border-gray-300 bg-gray-200 overflow-auto">
+                         <canvas id="editorCanvas" class="block"></canvas>
+                         <canvas id="editorCanvasOverlay" class="block absolute top-0 left-0 pointer-events-none"></canvas>
+                         <canvas id="manualCanvasOverlay" class="block absolute top-0 left-0 pointer-events-none"></canvas>
+                     </div>
+                 </div>
+            </div>
+
+            <div class="lg:col-span-1 flex flex-col space-y-6">
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">4. Animation Preview</h2>
+                     <div class="flex justify-center items-center mb-4 border border-gray-300 bg-gray-200" style="min-height: 150px;">
+                         <canvas id="previewCanvas" width="150" height="150"></canvas>
+                     </div>
+                    <div class="flex items-center space-x-3 mb-3">
+                        <button id="playPreview" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline text-sm">Play</button>
+                        <button id="pausePreview" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-3 rounded focus:outline-none focus:shadow-outline text-sm">Pause</button>
+                        <label for="fpsSlider" class="text-sm font-medium text-gray-700 whitespace-nowrap">Speed (FPS):</label>
+                        <input type="range" id="fpsSlider" min="1" max="60" value="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+                        <span id="fpsValue" class="text-sm font-semibold w-8 text-right">10</span>
+                    </div>
+                     <p id="previewStatus" class="text-sm text-gray-600 text-center">Preview paused.</p>
+                </div>
+
+                 <div class="bg-gray-50 p-4 rounded border">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">5. Export Frame Data (JSON)</h2>
+                    <textarea id="jsonData" readonly class="w-full h-40 p-2 border border-gray-300 rounded-md bg-gray-100 font-mono text-xs resize-none focus:outline-none" placeholder="JSON data will appear here..."></textarea>
+                    <div class="flex space-x-2 mt-3">
+                       <button id="copyJson" class="tooltip flex-1 bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                           Copy JSON
+                           <span class="tooltiptext" id="copyTooltip">Copy to clipboard</span>
+                       </button>
+                        <button id="downloadJson" class="flex-1 bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">Download JSON</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State variables
+        let image = null;
+        let frames = []; // Array of { x, y, w, h }
+        let selectedFrameIndex = -1;
+        let editMode = 'grid'; // 'grid' or 'manual'
+        let isDrawing = false;
+        let startCoords = { x: 0, y: 0 };
+        let currentRect = null; // For visual feedback during manual draw
+        let animationIntervalId = null;
+        let currentFrameIndex = 0;
+        let animationSpeed = 10; // FPS
+
+        // DOM Elements
+        const imageLoader = document.getElementById('imageLoader');
+        const imageNameDisplay = document.getElementById('imageName');
+        const editorCanvas = document.getElementById('editorCanvas');
+        const editorCtx = editorCanvas.getContext('2d');
+        const editorOverlayCanvas = document.getElementById('editorCanvasOverlay');
+        const editorOverlayCtx = editorOverlayCanvas.getContext('2d');
+        const manualOverlayCanvas = document.getElementById('manualCanvasOverlay');
+        const manualOverlayCtx = manualOverlayCanvas.getContext('2d');
+
+        const gridColsInput = document.getElementById('gridCols');
+        const gridRowsInput = document.getElementById('gridRows');
+        const applyGridBtn = document.getElementById('applyGrid');
+        const gridOptionsDiv = document.getElementById('gridOptions');
+        const manualOptionsDiv = document.getElementById('manualOptions');
+        const gridModeBtn = document.getElementById('gridModeBtn');
+        const manualModeBtn = document.getElementById('manualModeBtn');
+        const clearFramesBtn = document.getElementById('clearFramesBtn');
+
+        const frameListUl = document.getElementById('frameList');
+        const editorInstructions = document.getElementById('editorInstructions');
+
+        const previewCanvas = document.getElementById('previewCanvas');
+        const previewCtx = previewCanvas.getContext('2d');
+        const playPreviewBtn = document.getElementById('playPreview');
+        const pausePreviewBtn = document.getElementById('pausePreview');
+        const fpsSlider = document.getElementById('fpsSlider');
+        const fpsValueSpan = document.getElementById('fpsValue');
+        const previewStatus = document.getElementById('previewStatus');
+
+        const jsonDataTextarea = document.getElementById('jsonData');
+        const copyJsonBtn = document.getElementById('copyJson');
+        const downloadJsonBtn = document.getElementById('downloadJson');
+        const copyTooltip = document.getElementById('copyTooltip');
+
+        // --- Initialization ---
+        function initialize() {
+            updateFrameList();
+            updateJsonData();
+            setupEventListeners();
+            setEditMode('grid'); // Start in grid mode
+            fpsValueSpan.textContent = fpsSlider.value;
+            animationSpeed = parseInt(fpsSlider.value, 10);
+            editorInstructions.textContent = 'Load an image to start editing.';
+        }
+
+        // --- Event Listeners ---
+        function setupEventListeners() {
+            imageLoader.addEventListener('change', handleImageLoad);
+            gridModeBtn.addEventListener('click', () => setEditMode('grid'));
+            manualModeBtn.addEventListener('click', () => setEditMode('manual'));
+            applyGridBtn.addEventListener('click', applyGrid);
+            clearFramesBtn.addEventListener('click', clearAllFrames);
+
+            // Manual drawing listeners on the main editor canvas
+            editorCanvas.addEventListener('mousedown', handleMouseDown);
+            editorCanvas.addEventListener('mousemove', handleMouseMove);
+            editorCanvas.addEventListener('mouseup', handleMouseUp);
+            editorCanvas.addEventListener('mouseleave', handleMouseLeave); // Stop drawing if mouse leaves canvas
+
+            playPreviewBtn.addEventListener('click', playAnimation);
+            pausePreviewBtn.addEventListener('click', pauseAnimation);
+            fpsSlider.addEventListener('input', handleFpsChange);
+
+            copyJsonBtn.addEventListener('click', copyJsonToClipboard);
+            downloadJsonBtn.addEventListener('click', downloadJsonFile);
+        }
+
+        // --- Image Loading ---
+        function handleImageLoad(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    image = new Image();
+                    image.onload = function() {
+                        // Set canvas dimensions BEFORE drawing
+                        editorCanvas.width = image.width;
+                        editorCanvas.height = image.height;
+                        editorOverlayCanvas.width = image.width;
+                        editorOverlayCanvas.height = image.height;
+                        manualOverlayCanvas.width = image.width;
+                        manualOverlayCanvas.height = image.height;
+
+
+                        // Set fixed size for preview, aspect ratio maintained by drawImage clipping
+                        // Let's make preview bigger if possible, maybe based on largest frame?
+                        // For simplicity, keep it fixed for now.
+                         previewCanvas.width = 150;
+                         previewCanvas.height = 150;
+
+                        // Draw the image on the main canvas
+                        editorCtx.drawImage(image, 0, 0);
+                        editorInstructions.textContent = 'Image loaded. Define frames using the tools.';
+                        imageNameDisplay.textContent = file.name;
+
+                        // Reset state
+                        frames = [];
+                        selectedFrameIndex = -1;
+                        pauseAnimation(); // Stop any previous animation
+                        updateFrameList();
+                        updateJsonData();
+                        clearOverlays(); // Clear any previous drawings
+                        if (editMode === 'grid') drawGridLines(); // Draw grid if in grid mode
+
+                    }
+                    image.onerror = function() {
+                        alert('Error loading image.');
+                        resetEditorState();
+                    }
+                    image.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            } else {
+                 alert('Please select a valid image file (PNG, JPG, GIF).');
+                 resetEditorState();
+            }
+        }
+
+         function resetEditorState() {
+            image = null;
+            frames = [];
+            selectedFrameIndex = -1;
+            editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+            clearOverlays();
+            editorCanvas.width = 300; // Reset to default or placeholder size
+            editorCanvas.height = 300;
+            editorOverlayCanvas.width = 300;
+            editorOverlayCanvas.height = 300;
+            manualOverlayCanvas.width = 300;
+            manualOverlayCanvas.height = 300;
+            imageNameDisplay.textContent = 'No image loaded.';
+            editorInstructions.textContent = 'Load an image to start editing.';
+            pauseAnimation();
+            updateFrameList();
+            updateJsonData();
+         }
+
+        // --- Drawing Functions ---
+        function clearCanvas(ctx, canvas) {
+             ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function clearOverlays() {
+            clearCanvas(editorOverlayCtx, editorOverlayCanvas);
+            clearCanvas(manualOverlayCtx, manualOverlayCanvas);
+        }
+
+        function redrawEditorOverlay() {
+            clearCanvas(editorOverlayCtx, editorOverlayCanvas);
+            if (!image) return;
+
+            if (editMode === 'grid') {
+                drawGridLines();
+            }
+            drawDefinedFrames();
+        }
+
+        function drawGridLines() {
+            if (!image) return;
+            const cols = parseInt(gridColsInput.value, 10) || 1;
+            const rows = parseInt(gridRowsInput.value, 10) || 1;
+            const cellWidth = editorCanvas.width / cols;
+            const cellHeight = editorCanvas.height / rows;
+
+            editorOverlayCtx.strokeStyle = 'rgba(0, 0, 255, 0.5)'; // Blue grid lines
+            editorOverlayCtx.lineWidth = 1;
+            editorOverlayCtx.beginPath();
+
+            // Vertical lines
+            for (let i = 1; i < cols; i++) {
+                editorOverlayCtx.moveTo(i * cellWidth, 0);
+                editorOverlayCtx.lineTo(i * cellWidth, editorCanvas.height);
+            }
+            // Horizontal lines
+            for (let i = 1; i < rows; i++) {
+                editorOverlayCtx.moveTo(0, i * cellHeight);
+                editorOverlayCtx.lineTo(editorCanvas.width, i * cellHeight);
+            }
+            editorOverlayCtx.stroke();
+        }
+
+        function drawDefinedFrames() {
+             if (!image) return;
+             frames.forEach((frame, index) => {
+                 editorOverlayCtx.lineWidth = 2;
+                 editorOverlayCtx.strokeStyle = index === selectedFrameIndex ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 255, 0, 0.7)'; // Red if selected, Green otherwise
+                 editorOverlayCtx.strokeRect(frame.x, frame.y, frame.w, frame.h);
+
+                 // Draw frame number
+                 editorOverlayCtx.fillStyle = index === selectedFrameIndex ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 100, 0, 0.8)';
+                 editorOverlayCtx.font = 'bold 14px sans-serif';
+                 editorOverlayCtx.textAlign = 'center';
+                 editorOverlayCtx.textBaseline = 'middle';
+                 editorOverlayCtx.fillText(index + 1, frame.x + frame.w / 2, frame.y + frame.h / 2);
+             });
+        }
+
+         function drawManualRect(rect) {
+            clearCanvas(manualOverlayCtx, manualOverlayCanvas); // Clear previous temporary rect
+            if (rect) {
+                manualOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.8)'; // Orange for drawing feedback
+                manualOverlayCtx.lineWidth = 1;
+                manualOverlayCtx.setLineDash([5, 3]); // Dashed line
+                manualOverlayCtx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+                manualOverlayCtx.setLineDash([]); // Reset line dash
+            }
+        }
+
+
+        // --- Frame Definition Modes ---
+        function setEditMode(mode) {
+            if (!image && mode === 'manual') {
+                 alert("Please load an image before switching to Manual Draw mode.");
+                 return;
+            }
+
+            editMode = mode;
+            clearOverlays(); // Clear overlays when switching modes
+
+            if (mode === 'grid') {
+                gridOptionsDiv.style.display = 'block';
+                manualOptionsDiv.style.display = 'none';
+                gridModeBtn.classList.replace('bg-gray-500', 'bg-blue-500');
+                gridModeBtn.classList.replace('hover:bg-gray-700', 'hover:bg-blue-700');
+                manualModeBtn.classList.replace('bg-blue-500', 'bg-gray-500');
+                manualModeBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-700');
+                editorCanvas.style.cursor = 'default'; // Or crosshair if preferred for grid alignment
+                if (image) drawGridLines(); // Redraw grid if image exists
+                 drawDefinedFrames(); // Keep showing defined frames
+            } else { // Manual mode
+                gridOptionsDiv.style.display = 'none';
+                manualOptionsDiv.style.display = 'block';
+                manualModeBtn.classList.replace('bg-gray-500', 'bg-blue-500');
+                manualModeBtn.classList.replace('hover:bg-gray-700', 'hover:bg-blue-700');
+                gridModeBtn.classList.replace('bg-blue-500', 'bg-gray-500');
+                gridModeBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-700');
+                editorCanvas.style.cursor = 'crosshair';
+                 drawDefinedFrames(); // Show existing frames
+            }
+        }
+
+
+        // --- Grid Tool ---
+        function applyGrid() {
+            if (!image) {
+                alert('Please load an image first.');
+                return;
+            }
+            const cols = parseInt(gridColsInput.value, 10);
+            const rows = parseInt(gridRowsInput.value, 10);
+            if (isNaN(cols) || isNaN(rows) || cols < 1 || rows < 1) {
+                alert('Please enter valid numbers (>= 1) for rows and columns.');
+                return;
+            }
+
+            frames = []; // Clear existing frames
+            selectedFrameIndex = -1;
+            const cellWidth = image.width / cols;
+            const cellHeight = image.height / rows;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    frames.push({
+                        x: Math.round(c * cellWidth),
+                        y: Math.round(r * cellHeight),
+                        w: Math.round(cellWidth),
+                        h: Math.round(cellHeight)
+                    });
+                }
+            }
+            updateFrameList();
+            updateJsonData();
+            redrawEditorOverlay(); // Redraw grid and new frames
+             pauseAnimation(); // Stop animation as frames changed
+        }
+
+        // --- Manual Draw Tool ---
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+             // Adjust for canvas internal resolution vs display size if they differ
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: Math.max(0, Math.min(canvas.width, (evt.clientX - rect.left) * scaleX)),
+                y: Math.max(0, Math.min(canvas.height, (evt.clientY - rect.top) * scaleY))
+            };
+        }
+
+        function handleMouseDown(event) {
+            if (editMode !== 'manual' || !image) return;
+            isDrawing = true;
+            startCoords = getMousePos(editorCanvas, event);
+            currentRect = { x: startCoords.x, y: startCoords.y, w: 0, h: 0 }; // Initialize rect
+            manualOverlayCanvas.style.pointerEvents = 'none'; // Make sure overlay doesn't block mouseup
+        }
+
+        function handleMouseMove(event) {
+            if (!isDrawing || editMode !== 'manual' || !image) return;
+            const currentPos = getMousePos(editorCanvas, event);
+            let width = currentPos.x - startCoords.x;
+            let height = currentPos.y - startCoords.y;
+
+            currentRect = {
+                x: width < 0 ? currentPos.x : startCoords.x,
+                y: height < 0 ? currentPos.y : startCoords.y,
+                w: Math.abs(width),
+                h: Math.abs(height)
+            };
+            drawManualRect(currentRect); // Draw feedback on the separate manual overlay
+        }
+
+        function handleMouseUp(event) {
+            if (!isDrawing || editMode !== 'manual' || !image) return;
+            isDrawing = false;
+            clearCanvas(manualOverlayCtx, manualOverlayCanvas); // Clear the temporary drawing rect
+
+            if (currentRect && currentRect.w > 0 && currentRect.h > 0) {
+                // Add the finalized frame, ensuring positive width/height
+                 const finalRect = {
+                    x: Math.round(currentRect.x),
+                    y: Math.round(currentRect.y),
+                    w: Math.round(currentRect.w),
+                    h: Math.round(currentRect.h)
+                };
+                // Basic check to avoid tiny accidental frames
+                if (finalRect.w > 2 && finalRect.h > 2) {
+                    frames.push(finalRect);
+                    selectedFrameIndex = frames.length - 1; // Select the newly added frame
+                    updateFrameList();
+                    updateJsonData();
+                    redrawEditorOverlay(); // Update the main overlay with the new frame
+                }
+            }
+             currentRect = null; // Reset drawing rect
+        }
+
+         function handleMouseLeave(event) {
+            // If drawing and mouse leaves, treat it like mouse up to finalize or cancel
+            if (isDrawing) {
+                handleMouseUp(event);
+            }
+         }
+
+         function clearAllFrames() {
+             if (confirm('Are you sure you want to delete all defined frames?')) {
+                 frames = [];
+                 selectedFrameIndex = -1;
+                 updateFrameList();
+                 updateJsonData();
+                 redrawEditorOverlay();
+                 pauseAnimation();
+             }
+         }
+
+        // --- Frame Management ---
+        function updateFrameList() {
+            frameListUl.innerHTML = ''; // Clear list
+            if (frames.length === 0) {
+                frameListUl.innerHTML = '<li class="text-gray-500 text-center py-4">No frames defined yet.</li>';
+                return;
+            }
+
+            frames.forEach((frame, index) => {
+                const li = document.createElement('li');
+                li.classList.add('frame-item', 'p-2', 'flex', 'justify-between', 'items-center', 'text-sm');
+                if (index === selectedFrameIndex) {
+                    li.classList.add('selected');
+                }
+                li.dataset.index = index; // Store index for easy access
+
+                // Frame details text
+                const textSpan = document.createElement('span');
+                textSpan.textContent = `Frame ${index + 1}: (${frame.x}, ${frame.y}) - ${frame.w}x${frame.h}`;
+                textSpan.classList.add('flex-grow', 'mr-2', 'truncate');
+
+                 // Make the text clickable to select frame
+                 textSpan.addEventListener('click', () => {
+                     selectFrame(index);
+                 });
+
+                 li.appendChild(textSpan);
+
+                // Action buttons container
+                const buttonsDiv = document.createElement('div');
+                buttonsDiv.classList.add('flex', 'space-x-1', 'flex-shrink-0');
+
+                // Move Up Button
+                const upBtn = document.createElement('button');
+                upBtn.innerHTML = '&uarr;'; // Up arrow
+                upBtn.classList.add('px-1', 'py-0', 'bg-gray-200', 'hover:bg-gray-300', 'rounded', 'text-xs', 'font-bold');
+                upBtn.title = 'Move Up';
+                upBtn.disabled = index === 0; // Disable if first item
+                upBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent li click
+                    moveFrame(index, index - 1);
+                });
+
+                // Move Down Button
+                const downBtn = document.createElement('button');
+                downBtn.innerHTML = '&darr;'; // Down arrow
+                downBtn.classList.add('px-1', 'py-0', 'bg-gray-200', 'hover:bg-gray-300', 'rounded', 'text-xs', 'font-bold');
+                downBtn.title = 'Move Down';
+                downBtn.disabled = index === frames.length - 1; // Disable if last item
+                downBtn.addEventListener('click', (e) => {
+                     e.stopPropagation();
+                    moveFrame(index, index + 1);
+                });
+
+                // Delete Button
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '&times;'; // Multiplication sign (X)
+                deleteBtn.classList.add('px-1', 'py-0', 'bg-red-400', 'hover:bg-red-600', 'text-white', 'rounded', 'text-xs', 'font-bold');
+                deleteBtn.title = 'Delete Frame';
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteFrame(index);
+                });
+
+                buttonsDiv.appendChild(upBtn);
+                buttonsDiv.appendChild(downBtn);
+                buttonsDiv.appendChild(deleteBtn);
+                li.appendChild(buttonsDiv);
+
+                frameListUl.appendChild(li);
+            });
+        }
+
+        function selectFrame(index) {
+            if (index >= 0 && index < frames.length) {
+                selectedFrameIndex = index;
+            } else {
+                selectedFrameIndex = -1;
+            }
+            updateFrameList(); // Update list highlighting
+            redrawEditorOverlay(); // Update canvas highlighting
+        }
+
+        function deleteFrame(index) {
+            if (index >= 0 && index < frames.length) {
+                frames.splice(index, 1);
+                 // Adjust selected index if necessary
+                if (selectedFrameIndex === index) {
+                     selectedFrameIndex = -1; // Deselect if deleted item was selected
+                 } else if (selectedFrameIndex > index) {
+                    selectedFrameIndex--; // Adjust index if item before selected was deleted
+                 }
+                updateFrameList();
+                updateJsonData();
+                redrawEditorOverlay();
+                 pauseAnimation(); // Re-eval animation
+            }
+        }
+
+        function moveFrame(fromIndex, toIndex) {
+            if (fromIndex < 0 || fromIndex >= frames.length || toIndex < 0 || toIndex >= frames.length) {
+                return; // Invalid move
+            }
+            // Simple swap using array destructuring
+            [frames[fromIndex], frames[toIndex]] = [frames[toIndex], frames[fromIndex]];
+
+             // Update selected index if it was moved
+            if (selectedFrameIndex === fromIndex) {
+                selectedFrameIndex = toIndex;
+            } else if (selectedFrameIndex === toIndex) {
+                selectedFrameIndex = fromIndex;
+            }
+
+            updateFrameList();
+            updateJsonData();
+            redrawEditorOverlay(); // Overlay doesn't change, but list order does
+            pauseAnimation(); // Re-eval animation
+        }
+
+        // --- Animation Preview ---
+        function handleFpsChange(event) {
+            animationSpeed = parseInt(event.target.value, 10);
+            fpsValueSpan.textContent = animationSpeed;
+            // If animation is playing, restart it with the new speed
+            if (animationIntervalId) {
+                playAnimation();
+            }
+        }
+
+        function playAnimation() {
+            pauseAnimation(); // Clear any existing interval
+            if (!image || frames.length === 0) {
+                previewStatus.textContent = 'No frames to preview.';
+                return;
+            }
+
+            currentFrameIndex = 0; // Start from the beginning
+            const frameDelay = 1000 / animationSpeed; // milliseconds per frame
+
+            animationIntervalId = setInterval(() => {
+                animateFrame();
+            }, frameDelay);
+            previewStatus.textContent = `Playing ${frames.length} frames at ${animationSpeed} FPS...`;
+        }
+
+        function pauseAnimation() {
+            if (animationIntervalId) {
+                clearInterval(animationIntervalId);
+                animationIntervalId = null;
+                previewStatus.textContent = 'Preview paused.';
+            }
+        }
+
+        function animateFrame() {
+            if (!image || frames.length === 0) {
+                pauseAnimation();
+                return;
+            }
+
+            const frame = frames[currentFrameIndex];
+            clearCanvas(previewCtx, previewCanvas);
+
+            // Draw the current frame onto the preview canvas
+            // Maintain aspect ratio, fit within preview box
+            const imgAspect = frame.w / frame.h;
+            const canvasAspect = previewCanvas.width / previewCanvas.height;
+            let drawW, drawH, drawX, drawY;
+
+            if (imgAspect > canvasAspect) { // Image is wider than canvas aspect
+                drawW = previewCanvas.width;
+                drawH = drawW / imgAspect;
+                drawX = 0;
+                drawY = (previewCanvas.height - drawH) / 2;
+            } else { // Image is taller or equal aspect
+                drawH = previewCanvas.height;
+                drawW = drawH * imgAspect;
+                drawY = 0;
+                drawX = (previewCanvas.width - drawW) / 2;
+            }
+
+
+            previewCtx.drawImage(
+                image,       // Source image
+                frame.x,     // Source X
+                frame.y,     // Source Y
+                frame.w,     // Source Width
+                frame.h,     // Source Height
+                drawX,       // Destination X
+                drawY,       // Destination Y
+                drawW,       // Destination Width
+                drawH        // Destination Height
+            );
+
+            // Move to the next frame, loop around
+            currentFrameIndex = (currentFrameIndex + 1) % frames.length;
+        }
+
+
+        // --- Data Export ---
+        function updateJsonData() {
+            if (frames.length > 0) {
+                 // Create a clean array for export (e.g., without temporary properties if any were added)
+                 const exportFrames = frames.map(f => ({ x: f.x, y: f.y, w: f.w, h: f.h }));
+                 jsonDataTextarea.value = JSON.stringify(exportFrames, null, 2); // Pretty print
+            } else {
+                 jsonDataTextarea.value = '[]';
+            }
+        }
+
+        function copyJsonToClipboard() {
+            if (frames.length === 0) {
+                copyTooltip.textContent = 'Nothing to copy!';
+                setTimeout(() => { copyTooltip.textContent = 'Copy to clipboard'; }, 2000);
+                return;
+            }
+            navigator.clipboard.writeText(jsonDataTextarea.value)
+                .then(() => {
+                    copyTooltip.textContent = 'Copied!';
+                    setTimeout(() => { copyTooltip.textContent = 'Copy to clipboard'; }, 2000); // Reset tooltip text
+                })
+                .catch(err => {
+                    console.error('Failed to copy JSON: ', err);
+                    copyTooltip.textContent = 'Copy failed!';
+                     setTimeout(() => { copyTooltip.textContent = 'Copy to clipboard'; }, 2000);
+                    // Fallback for older browsers or security restrictions (less common now)
+                    // jsonDataTextarea.select();
+                    // try { document.execCommand('copy'); } catch (e) {} // Might not work
+                });
+        }
+
+        function downloadJsonFile() {
+             if (frames.length === 0) {
+                alert("No frame data to download.");
+                return;
+            }
+            const jsonData = jsonDataTextarea.value;
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            // Try to get a filename from the loaded image
+            let filename = 'spritesheet_data.json';
+            if (image && imageNameDisplay.textContent !== 'No image loaded.') {
+                 const baseName = imageNameDisplay.textContent.split('.').slice(0, -1).join('.') || 'spritesheet';
+                 filename = `${baseName}_frames.json`;
+            }
+            a.download = filename;
+            document.body.appendChild(a); // Append link to body
+            a.click(); // Programmatically click the link to trigger download
+            document.body.removeChild(a); // Remove the link
+            URL.revokeObjectURL(url); // Free up memory
+        }
+
+
+        // --- Run Initialization ---
+        document.addEventListener('DOMContentLoaded', initialize);
+
+    </script>
+
+</body>
+</html>
