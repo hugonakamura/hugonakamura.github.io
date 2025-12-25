@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Simon Memory Game</title>
+    <style>
+        :root {
+            --green: #00ff00;
+            --red: #ff0000;
+            --yellow: #ffff00;
+            --blue: #0000ff;
+            --dark-bg: #202020;
+            --text-color: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--dark-bg);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100dvh; /* Dynamic Viewport Height for mobile */
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* HEADER */
+        #header {
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+            font-weight: bold;
+            background: rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+
+        /* GAME BOARD */
+        #game-board {
+            flex-grow: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 8px;
+            padding: 10px;
+            max-width: 600px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .pad {
+            border-radius: 15px;
+            opacity: 0.6;
+            cursor: pointer;
+            transition: opacity 0.1s, transform 0.1s;
+            touch-action: manipulation; /* Prevents double-tap zoom delay */
+            -webkit-tap-highlight-color: transparent;
+            border: 4px solid rgba(0,0,0,0.2);
+        }
+
+        .pad:active, .pad.active {
+            opacity: 1;
+            transform: scale(0.98);
+            border-color: rgba(255,255,255,0.8);
+            box-shadow: 0 0 20px currentColor;
+        }
+
+        .green { background-color: var(--green); color: var(--green); }
+        .red { background-color: var(--red); color: var(--red); }
+        .yellow { background-color: var(--yellow); color: var(--yellow); }
+        .blue { background-color: var(--blue); color: var(--blue); }
+
+        /* OVERLAY / MODALS */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            text-align: center;
+        }
+
+        .hidden { display: none !important; }
+
+        h1 { margin-top: 0; font-size: 2.5rem; text-shadow: 2px 2px #000; }
+        
+        button {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 50px;
+            background: linear-gradient(45deg, #ff00cc, #3333ff);
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+
+        /* LEADERBOARD */
+        #leaderboard {
+            margin-top: 20px;
+            width: 80%;
+            max-width: 300px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+        }
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* INPUT PROMPT */
+        #name-input-container {
+            margin-bottom: 20px;
+        }
+        input {
+            padding: 10px;
+            font-size: 1.2rem;
+            border-radius: 5px;
+            border: none;
+            text-align: center;
+            width: 70%;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <span id="score-display">Score: 0</span>
+        <span id="highscore-display">Best: 0</span>
+    </div>
+
+    <div id="game-board">
+        <div class="pad green" data-id="0" data-freq="329.63"></div>
+        <div class="pad red" data-id="1" data-freq="277.18"></div>
+        <div class="pad yellow" data-id="2" data-freq="220.00"></div>
+        <div class="pad blue" data-id="3" data-freq="164.81"></div>
+    </div>
+
+    <div id="overlay">
+        <div id="start-screen">
+            <h1>SIMON</h1>
+            <button id="start-btn">Start Game</button>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 id="status-text">Game Over</h1>
+            
+            <div id="name-input-container" class="hidden">
+                <p>New High Score!</p>
+                <input type="text" id="username" placeholder="Enter Name" maxlength="10">
+                <br><br>
+                <button id="save-score-btn" style="font-size: 1rem; padding: 8px 20px;">Save</button>
+            </div>
+
+            <div id="leaderboard">
+                <h3>Leaderboard</h3>
+                <div id="leaderboard-list"></div>
+            </div>
+            <br>
+            <button id="retry-btn">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        /** AUDIO SYSTEM (Web Audio API) **/
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function playSound(freq, type = 'sine', duration = 0.3) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = type;
+            osc.frequency.value = freq;
+            
+            // Envelope to avoid clicking sound
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        /** GAME STATE **/
+        const pads = document.querySelectorAll('.pad');
+        const scoreDisplay = document.getElementById('score-display');
+        const highscoreDisplay = document.getElementById('highscore-display');
+        
+        let sequence = [];
+        let playerIndex = 0;
+        let score = 0;
+        let isInputLocked = true;
+        
+        // Leaderboard Management
+        const STORAGE_KEY = 'simon_leaderboard_v1';
+        
+        function getLeaderboard() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : [];
+        }
+
+        function saveLeaderboard(list) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+            updateLeaderboardUI();
+        }
+
+        function updateHighScoreDisplay() {
+            const list = getLeaderboard();
+            const top = list.length > 0 ? list[0].score : 0;
+            highscoreDisplay.textContent = `Best: ${top}`;
+        }
+
+        /** UI LOGIC **/
+        function flashPad(pad, duration = 300) {
+            pad.classList.add('active');
+            playSound(parseFloat(pad.dataset.freq));
+            setTimeout(() => pad.classList.remove('active'), duration);
+        }
+
+        function playSequence() {
+            isInputLocked = true;
+            scoreDisplay.textContent = `Score: ${score}`;
+            
+            let i = 0;
+            const interval = setInterval(() => {
+                const padId = sequence[i];
+                flashPad(pads[padId], 400); // Slower flash for sequence
+                i++;
+                if (i >= sequence.length) {
+                    clearInterval(interval);
+                    isInputLocked = false;
+                }
+            }, 800); // Time between flashes
+        }
+
+        function nextRound() {
+            playerIndex = 0;
+            score++;
+            scoreDisplay.textContent = `Score: ${score}`;
+            
+            // Add random color (0-3)
+            sequence.push(Math.floor(Math.random() * 4));
+            
+            // Wait a bit before playing sequence
+            setTimeout(playSequence, 1000);
+        }
+
+        function startGame() {
+            initAudio(); // Initialize audio context on user gesture
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            document.getElementById('overlay').classList.add('hidden');
+            
+            sequence = [];
+            score = -1; // Will become 0 in nextRound
+            nextRound();
+        }
+
+        function handleInput(e) {
+            if (isInputLocked) return;
+
+            // Handle both touch and click, prevent ghost clicks
+            e.preventDefault(); 
+            const pad = e.target;
+            const padId = parseInt(pad.dataset.id);
+
+            // Visual feedback
+            flashPad(pad, 150);
+
+            // Logic
+            if (padId === sequence[playerIndex]) {
+                playerIndex++;
+                if (playerIndex === sequence.length) {
+                    isInputLocked = true;
+                    setTimeout(nextRound, 500);
+                }
+            } else {
+                gameOver();
+            }
+        }
+
+        function gameOver() {
+            isInputLocked = true;
+            
+            // Play error sound (low frequency saw)
+            playSound(100, 'sawtooth', 0.8);
+            
+            // Check Highscore
+            const list = getLeaderboard();
+            const lowestScore = list.length < 5 ? 0 : list[list.length - 1].score;
+            
+            document.getElementById('overlay').classList.remove('hidden');
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('status-text').textContent = "Game Over";
+            
+            const nameInputDiv = document.getElementById('name-input-container');
+            const retryBtn = document.getElementById('retry-btn');
+            
+            updateLeaderboardUI();
+
+            if (score > lowestScore || list.length < 5) {
+                nameInputDiv.classList.remove('hidden');
+                retryBtn.classList.add('hidden'); // Hide retry until name is saved
+                document.getElementById('username').focus();
+            } else {
+                nameInputDiv.classList.add('hidden');
+                retryBtn.classList.remove('hidden');
+            }
+        }
+
+        function submitScore() {
+            const nameInput = document.getElementById('username');
+            const name = nameInput.value.trim() || "Anonymous";
+            
+            let list = getLeaderboard();
+            list.push({ name: name, score: score });
+            
+            // Sort Descending
+            list.sort((a, b) => b.score - a.score);
+            
+            // Keep top 5
+            list = list.slice(0, 5);
+            
+            saveLeaderboard(list);
+            updateHighScoreDisplay();
+            
+            // Reset UI
+            nameInput.value = "";
+            document.getElementById('name-input-container').classList.add('hidden');
+            document.getElementById('retry-btn').classList.remove('hidden');
+        }
+
+        function updateLeaderboardUI() {
+            const list = getLeaderboard();
+            const container = document.getElementById('leaderboard-list');
+            container.innerHTML = "";
+            
+            if (list.length === 0) {
+                container.innerHTML = "<p>No scores yet</p>";
+                return;
+            }
+
+            list.forEach((entry, index) => {
+                const row = document.createElement('div');
+                row.className = 'score-row';
+                row.innerHTML = `<span>#${index+1} ${entry.name}</span><span>${entry.score}</span>`;
+                if (entry.score === score) row.style.color = "#ffff00"; // Highlight current
+                container.appendChild(row);
+            });
+        }
+
+        /** EVENT LISTENERS **/
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('retry-btn').addEventListener('click', startGame);
+        
+        document.getElementById('save-score-btn').addEventListener('click', submitScore);
+
+        pads.forEach(pad => {
+            // Using pointerdown for faster response on both mobile and desktop
+            pad.addEventListener('pointerdown', handleInput);
+        });
+
+        // Initialize display
+        updateHighScoreDisplay();
+
+    </script>
+</body>
+</html>
