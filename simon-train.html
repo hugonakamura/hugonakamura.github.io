@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Memory Game</title>
+    <style>
+        :root {
+            --bg-color: #87CEEB;
+            --ground-color: #8db360;
+            --track-wood: #5d4037;
+            --track-steel: #777;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #2c3e50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            color: white;
+            user-select: none;
+        }
+
+        h1 { margin-bottom: 10px; text-shadow: 2px 2px 0px #000; }
+        
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            border: 4px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--bg-color);
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, var(--bg-color) 60%, var(--ground-color) 60%);
+        }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #status-text {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 0 #000;
+            background-color: rgba(0,0,0,0.3);
+            padding: 5px 15px;
+            border-radius: 15px;
+            display: inline-block;
+        }
+
+        #score-display {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        /* Controls */
+        #controls {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            width: 300px;
+        }
+
+        .btn {
+            height: 80px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            color: rgba(0,0,0,0.5);
+            transition: transform 0.1s, filter 0.1s;
+            box-shadow: 0 5px 0 rgba(0,0,0,0.2);
+        }
+
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+        }
+
+        .btn:disabled {
+            filter: grayscale(0.8);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        /* Color Buttons */
+        .red { background-color: #ff5252; }
+        .green { background-color: #69f0ae; }
+        .blue { background-color: #448aff; }
+        .yellow { background-color: #ffd740; }
+
+        /* Start Screen / Game Over */
+        #overlay-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 24px;
+            background-color: #fff;
+            color: #333;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        #start-btn:hover { background-color: #eee; }
+
+        .hidden { display: none !important; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Train Memory</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="600" height="300"></canvas>
+        
+        <div id="ui-layer">
+            <div id="status-text">Watch the Trains!</div>
+        </div>
+        
+        <div id="score-display">Score: 0</div>
+
+        <div id="overlay-screen">
+            <h2 id="overlay-title">Ready?</h2>
+            <p id="overlay-msg">Memorize the sequence of trains.</p>
+            <button id="start-btn">Start Game</button>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button class="btn red" id="btn-red" disabled>RED</button>
+        <button class="btn blue" id="btn-blue" disabled>BLUE</button>
+        <button class="btn green" id="btn-green" disabled>GREEN</button>
+        <button class="btn yellow" id="btn-yellow" disabled>YELLOW</button>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const COLORS = ['red', 'blue', 'green', 'yellow'];
+    const CANVAS_WIDTH = 600;
+    const CANVAS_HEIGHT = 300;
+    const TRACK_Y = 200;
+    
+    // --- Game State ---
+    let sequence = [];
+    let playerSequence = [];
+    let score = 0;
+    let isPlaying = false;
+    let isInputPhase = false;
+    
+    // Animation State
+    let activeTrain = null; // Object { x, color }
+    let sequenceIndexToSpawn = 0;
+    let trainSpeed = 2.5;
+    let particles = []; // Smoke particles
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status-text');
+    const scoreDisplay = document.getElementById('score-display');
+    const overlay = document.getElementById('overlay-screen');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const startBtn = document.getElementById('start-btn');
+    const buttons = {
+        red: document.getElementById('btn-red'),
+        blue: document.getElementById('btn-blue'),
+        green: document.getElementById('btn-green'),
+        yellow: document.getElementById('btn-yellow')
+    };
+
+    // --- Audio Logic (Simple synth) ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioContext();
+
+    function playTone(freq, type = 'sine') {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
+        osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    const tones = {
+        red: 261.63,   // C4
+        blue: 329.63,  // E4
+        green: 392.00, // G4
+        yellow: 523.25 // C5
+    };
+
+    // --- Drawing Functions ---
+
+    function drawBackground() {
+        // Clear
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        
+        // Tracks
+        // Sleepers
+        ctx.fillStyle = '#5d4037';
+        for(let i=0; i < CANVAS_WIDTH; i+=40) {
+            ctx.fillRect(i, TRACK_Y - 10, 30, 60);
+        }
+        
+        // Rails
+        ctx.fillStyle = '#777';
+        ctx.fillRect(0, TRACK_Y, CANVAS_WIDTH, 6);
+        ctx.fillRect(0, TRACK_Y + 40, CANVAS_WIDTH, 6);
+    }
+
+    function drawTrain(train) {
+        if (!train) return;
+
+        const x = train.x;
+        const y = TRACK_Y - 50; // Sit on top of rail
+        
+        let colorHex;
+        switch(train.color) {
+            case 'red': colorHex = '#ff5252'; break;
+            case 'blue': colorHex = '#448aff'; break;
+            case 'green': colorHex = '#69f0ae'; break;
+            case 'yellow': colorHex = '#ffd740'; break;
+        }
+
+        // Save context
+        ctx.save();
+
+        // Main Body
+        ctx.fillStyle = colorHex;
+        ctx.fillRect(x, y, 100, 60);
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, 100, 60);
+
+        // --- UPDATED: Cabin is now on the LEFT (Back) ---
+        ctx.fillStyle = shadeColor(colorHex, -20);
+        ctx.fillRect(x, y - 30, 30, 30); 
+
+        // --- UPDATED: Chimney is now on the RIGHT (Front) ---
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x + 75, y - 25, 15, 25);
+        ctx.beginPath(); // Rim
+        ctx.ellipse(x + 82.5, y - 25, 10, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Wheels (Can stay mostly the same)
+        ctx.fillStyle = '#333';
+        const wheelY = TRACK_Y + 5;
+        drawWheel(x + 20, wheelY);
+        drawWheel(x + 50, wheelY);
+        drawWheel(x + 85, wheelY);
+
+        // --- UPDATED: Cowcatcher points to the RIGHT ---
+        ctx.fillStyle = '#555';
+        ctx.beginPath();
+        ctx.moveTo(x + 100, y + 60);       // Bottom corner of train body
+        ctx.lineTo(x + 100, y + 40);       // Top of cowcatcher on body
+        ctx.lineTo(x + 120, y + 60);       // Pointy end facing right
+        ctx.fill();
+
+        ctx.restore();
+
+        // --- UPDATED: Smoke comes out of the RIGHT side now ---
+        if (Math.random() > 0.8) {
+            particles.push({
+                x: x + 82.5, // Moved smoke source to new chimney position
+                y: y - 30,
+                vx: -1 - Math.random(), // Wind blows smoke left (behind train)
+                vy: -1 - Math.random(),
+                life: 1.0,
+                size: 5 + Math.random() * 5
+            });
+        }
+    }
+
+    function drawWheel(x, y) {
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        // Inner spoke visual
+        ctx.fillStyle = '#999';
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawParticles() {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            p.size += 0.1;
+            p.life -= 0.02;
+
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    // Utility to darken color for cabin
+    function shadeColor(color, percent) {
+        var R = parseInt(color.substring(1,3),16);
+        var G = parseInt(color.substring(3,5),16);
+        var B = parseInt(color.substring(5,7),16);
+        R = parseInt(R * (100 + percent) / 100);
+        G = parseInt(G * (100 + percent) / 100);
+        B = parseInt(B * (100 + percent) / 100);
+        R = (R<255)?R:255;  
+        G = (G<255)?G:255;  
+        B = (B<255)?B:255;  
+        var RR = ((R.toString(16).length==1)?"0"+R.toString(16):R.toString(16));
+        var GG = ((G.toString(16).length==1)?"0"+G.toString(16):G.toString(16));
+        var BB = ((B.toString(16).length==1)?"0"+B.toString(16):B.toString(16));
+        return "#"+RR+GG+BB;
+    }
+
+    // --- Game Logic ---
+
+    function startGame() {
+        sequence = [];
+        score = 0;
+        scoreDisplay.innerText = "Score: " + score;
+        overlay.classList.add('hidden');
+        isPlaying = true;
+        nextRound();
+        gameLoop();
+    }
+
+    function nextRound() {
+        // Add random color to sequence
+        const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
+        sequence.push(randomColor);
+        
+        // Reset player input
+        playerSequence = [];
+        
+        // Reset animation state
+        isInputPhase = false;
+        disableButtons(true);
+        sequenceIndexToSpawn = 0;
+        statusText.innerText = "Watch the Trains!";
+        
+        // Start spawning trains (handled in Game Loop)
+        setTimeout(() => {
+            spawnNextTrain();
+        }, 1000);
+    }
+
+    function spawnNextTrain() {
+        if (sequenceIndexToSpawn < sequence.length) {
+            let color = sequence[sequenceIndexToSpawn];
+            activeTrain = {
+                x: -150, // Start off screen left
+                color: color
+            };
+            
+            // Play sound when train appears
+            playTone(tones[color], 'sawtooth');
+            
+            sequenceIndexToSpawn++;
+        } else {
+            // Sequence done
+            activeTrain = null;
+            startInputPhase();
+        }
+    }
+
+    function startInputPhase() {
+        isInputPhase = true;
+        statusText.innerText = "Your Turn! Replay the colors.";
+        disableButtons(false);
+    }
+
+    function handleInput(color) {
+        if (!isInputPhase) return;
+
+        playTone(tones[color], 'sine');
+        playerSequence.push(color);
+
+        // Check validity
+        const currentIndex = playerSequence.length - 1;
+        
+        if (playerSequence[currentIndex] !== sequence[currentIndex]) {
+            gameOver();
+            return;
+        }
+
+        // Correct so far
+        if (playerSequence.length === sequence.length) {
+            // Round complete
+            score++;
+            scoreDisplay.innerText = "Score: " + score;
+            disableButtons(true);
+            statusText.innerText = "Correct! Next Train Coming...";
+            setTimeout(nextRound, 1500);
+        }
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        activeTrain = null;
+        overlayTitle.innerText = "Game Over!";
+        overlayMsg.innerText = `You recalled ${score} trains correctly.`;
+        startBtn.innerText = "Try Again";
+        overlay.classList.remove('hidden');
+    }
+
+    function disableButtons(disabled) {
+        Object.values(buttons).forEach(btn => btn.disabled = disabled);
+    }
+
+    // --- Main Loop ---
+    function gameLoop() {
+        if (!isPlaying) return;
+
+        drawBackground();
+        drawParticles();
+
+        if (activeTrain) {
+            // Move train
+            activeTrain.x += trainSpeed + (score * 0.5); // Gets faster slightly
+            drawTrain(activeTrain);
+
+            // Check if train left screen
+            if (activeTrain.x > CANVAS_WIDTH + 50) {
+                activeTrain = null;
+                // Slight delay before next train in sequence
+                setTimeout(spawnNextTrain, 200);
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- Initialization ---
+    startBtn.addEventListener('click', startGame);
+
+    // Button Listeners
+    COLORS.forEach(color => {
+        buttons[color].addEventListener('click', () => handleInput(color));
+    });
+
+    // Initial Draw
+    drawBackground();
+
+</script>
+</body>
+</html>
