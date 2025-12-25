@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memória de Trem</title>
+    <style>
+        :root {
+            --bg-color: #87CEEB;
+            --ground-color: #8db360;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #2c3e50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            color: white;
+            user-select: none;
+        }
+
+        h1 { margin-bottom: 10px; text-shadow: 2px 2px 0px #000; }
+        
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            border: 4px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--bg-color);
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, var(--bg-color) 60%, var(--ground-color) 60%);
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #status-text {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 0 #000;
+            background-color: rgba(0,0,0,0.3);
+            padding: 5px 15px;
+            border-radius: 15px;
+            display: inline-block;
+        }
+
+        #score-display {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        #controls {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 15px;
+            width: 600px;
+        }
+
+        .btn {
+            height: 80px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            color: rgba(0,0,0,0.5);
+            transition: transform 0.1s, filter 0.1s;
+            box-shadow: 0 5px 0 rgba(0,0,0,0.2);
+        }
+
+        .btn:active { transform: translateY(4px); box-shadow: 0 1px 0 rgba(0,0,0,0.2); }
+        .btn:disabled { filter: grayscale(0.8); cursor: not-allowed; opacity: 0.5; }
+
+        .red { background-color: #ff5252; }
+        .green { background-color: #69f0ae; }
+        .blue { background-color: #448aff; }
+        .yellow { background-color: #ffd740; }
+
+        #overlay-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 24px;
+            background-color: #fff;
+            color: #333;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        #start-btn:hover { background-color: #eee; }
+        .hidden { display: none !important; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Memória de Trem</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="300"></canvas>
+        
+        <div id="ui-layer">
+            <div id="status-text">O trem está vindo!</div>
+        </div>
+        
+        <div id="score-display">Score: 0</div>
+
+        <div id="overlay-screen">
+            <h2 id="overlay-title">Pronto?</h2>
+            <p id="overlay-msg">Memorize a ordem dos vagões.</p>
+            <button id="start-btn">Start Game</button>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button class="btn red" id="btn-red" disabled>RED</button>
+        <button class="btn blue" id="btn-blue" disabled>BLUE</button>
+        <button class="btn green" id="btn-green" disabled>GREEN</button>
+        <button class="btn yellow" id="btn-yellow" disabled>YELLOW</button>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const COLORS = ['red', 'blue', 'green', 'yellow'];
+    const CANVAS_WIDTH = 800;
+    const CANVAS_HEIGHT = 300;
+    const TRACK_Y = 200;
+    const TRAIN_SPEED = 3;
+    
+    // --- Game State ---
+    let sequence = [];
+    let playerSequence = [];
+    let score = 0;
+    let isPlaying = false;
+    let isInputPhase = false;
+    
+    // Animation State
+    // trainHeadX represents the very front tip of the Locomotive
+    let trainHeadX = -100; 
+    let isTrainMoving = false;
+    let particles = [];
+    let lastPlayedWagonIndex = -1; // To track audio triggers
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status-text');
+    const scoreDisplay = document.getElementById('score-display');
+    const overlay = document.getElementById('overlay-screen');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const startBtn = document.getElementById('start-btn');
+    const buttons = {
+        red: document.getElementById('btn-red'),
+        blue: document.getElementById('btn-blue'),
+        green: document.getElementById('btn-green'),
+        yellow: document.getElementById('btn-yellow')
+    };
+
+    // --- Audio ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioContext();
+
+    function playTone(freq, type = 'sine', duration = 0.3) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    const tones = {
+        red: 261.63, blue: 329.63, green: 392.00, yellow: 523.25,
+        engine: 100.00 // Low rumble for engine
+    };
+
+    // --- Drawing Functions ---
+
+    function drawBackground() {
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // Sleepers
+        ctx.fillStyle = '#5d4037';
+        for(let i=0; i < CANVAS_WIDTH; i+=40) ctx.fillRect(i, TRACK_Y - 10, 30, 60);
+        // Rails
+        ctx.fillStyle = '#777';
+        ctx.fillRect(0, TRACK_Y, CANVAS_WIDTH, 6);
+        ctx.fillRect(0, TRACK_Y + 40, CANVAS_WIDTH, 6);
+    }
+
+    // Draws the Engine (Locomotive) at a specific Front X position
+    function drawLocomotive(frontX) {
+        const y = TRACK_Y - 50;
+        const width = 110;
+        const x = frontX - width; // Calculate back of train based on front
+
+        // Main Body (Dark Grey)
+        ctx.fillStyle = '#444'; 
+        ctx.fillRect(x, y, width, 60);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, 60);
+
+        // Cabin (Left/Back)
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x, y - 35, 40, 35);
+        // Window
+        ctx.fillStyle = '#88c';
+        ctx.fillRect(x + 5, y - 25, 20, 15);
+
+        // Chimney (Right/Front)
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x + 80, y - 30, 20, 30);
+        
+        // Cowcatcher (Right Pointy)
+        ctx.fillStyle = '#222';
+        ctx.beginPath();
+        ctx.moveTo(x + width, y + 60);
+        ctx.lineTo(x + width, y + 40);
+        ctx.lineTo(x + width + 20, y + 60);
+        ctx.fill();
+
+        // Wheels
+        const wheelY = TRACK_Y + 5;
+        drawWheel(x + 20, wheelY);
+        drawWheel(x + 55, wheelY);
+        drawWheel(x + 90, wheelY);
+
+        // Smoke
+        if (Math.random() > 0.7) {
+            particles.push({
+                x: x + 90, y: y - 30,
+                vx: -2 - Math.random(), vy: -1 - Math.random(),
+                life: 1.0, size: 4 + Math.random() * 6
+            });
+        }
+    }
+
+    function drawWagon(frontX, colorName) {
+        const y = TRACK_Y - 45; // Wagons slightly lower/smaller than engine cabin
+        const width = 90;
+        const x = frontX - width;
+        
+        let colorHex;
+        switch(colorName) {
+            case 'red': colorHex = '#ff5252'; break;
+            case 'blue': colorHex = '#448aff'; break;
+            case 'green': colorHex = '#69f0ae'; break;
+            case 'yellow': colorHex = '#ffd740'; break;
+        }
+
+        // Connector
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x + width, y + 35, 15, 10);
+
+        // Wagon Body
+        ctx.fillStyle = colorHex;
+        ctx.fillRect(x, y, width, 55);
+        ctx.strokeRect(x, y, width, 55);
+
+        // Detail lines (Wood planks)
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        ctx.fillRect(x, y + 10, width, 5);
+        ctx.fillRect(x, y + 30, width, 5);
+
+        // Wheels
+        const wheelY = TRACK_Y + 5;
+        drawWheel(x + 20, wheelY);
+        drawWheel(x + 70, wheelY);
+    }
+
+    function drawWheel(x, y) {
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Inner spoke
+        ctx.fillStyle = '#aaa';
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawParticles() {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            p.x += p.vx; p.y += p.vy; p.size += 0.1; p.life -= 0.02;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    // --- Game Logic ---
+
+    function startGame() {
+        sequence = [];
+        score = 0;
+        scoreDisplay.innerText = "Score: " + score;
+        overlay.classList.add('hidden');
+        isPlaying = true;
+        nextRound();
+        gameLoop();
+    }
+
+    function nextRound() {
+        // Add random wagon
+        sequence.push(COLORS[Math.floor(Math.random() * COLORS.length)]);
+        
+        playerSequence = [];
+        isInputPhase = false;
+        disableButtons(true);
+        statusText.innerText = "Watch the Train!";
+        
+        // Reset Train Position (Start far left)
+        // We need enough space for the whole train to be offscreen
+        // Loco Width (130) + (Sequence * (WagonWidth 90 + Gap 15))
+        trainHeadX = -50; 
+        lastPlayedWagonIndex = -1; // Reset audio tracker
+        isTrainMoving = true;
+    }
+
+    function handleInput(color) {
+        if (!isInputPhase) return;
+
+        playTone(tones[color], 'sine', 0.2);
+        playerSequence.push(color);
+
+        // Check logic
+        const idx = playerSequence.length - 1;
+        if (playerSequence[idx] !== sequence[idx]) {
+            gameOver();
+            return;
+        }
+
+        if (playerSequence.length === sequence.length) {
+            score++;
+            scoreDisplay.innerText = "Score: " + score;
+            disableButtons(true);
+            statusText.innerText = "Correct! Loading more cargo...";
+            setTimeout(nextRound, 1500);
+        }
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        isTrainMoving = false;
+        overlayTitle.innerText = "Game Over!";
+        overlayMsg.innerText = `You delivered ${score} trains successfully.`;
+        startBtn.innerText = "Try Again";
+        overlay.classList.remove('hidden');
+    }
+
+    function disableButtons(disabled) {
+        Object.values(buttons).forEach(btn => btn.disabled = disabled);
+    }
+
+    // --- Main Loop ---
+    function gameLoop() {
+        if (!isPlaying) return;
+
+        drawBackground();
+        drawParticles();
+
+        if (isTrainMoving) {
+            // Move Train
+            trainHeadX += TRAIN_SPEED;
+
+            // Draw Locomotive
+            drawLocomotive(trainHeadX);
+
+            // Draw Wagons
+            // Wagon 1 is behind Loco, Wagon 2 behind Wagon 1...
+            // Sequence[0] is the FIRST wagon (closest to engine)
+            let currentX = trainHeadX - 130; // 130 = Loco Width + Gap
+
+            for (let i = 0; i < sequence.length; i++) {
+                drawWagon(currentX, sequence[i]);
+                
+                // Audio Trigger: Play sound when wagon center crosses X = 150
+                let wagonCenter = currentX - 45; // Half wagon width
+                if (wagonCenter > 150 && i > lastPlayedWagonIndex) {
+                    playTone(tones[sequence[i]], 'sawtooth', 0.15);
+                    lastPlayedWagonIndex = i;
+                }
+
+                currentX -= 105; // Wagon width (90) + Gap (15)
+            }
+
+            // Check if entire train is off screen
+            // The last wagon's back must be > CANVAS_WIDTH
+            // Last wagon X is calculated in the loop. 
+            // Simplified: if currentX (which is the back of the train now) > CANVAS_WIDTH
+            // Wait, currentX is moving LEFT relative to head. 
+            // Actually, we check if the TAIL of the train > CANVAS_WIDTH.
+            let tailX = currentX; 
+            if (tailX > CANVAS_WIDTH) {
+                isTrainMoving = false;
+                isInputPhase = true;
+                statusText.innerText = "What was the order?";
+                disableButtons(false);
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- Initialization ---
+    startBtn.addEventListener('click', startGame);
+    COLORS.forEach(c => buttons[c].addEventListener('click', () => handleInput(c)));
+    drawBackground();
+
+</script>
+</body>
+</html>
