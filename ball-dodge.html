@@ -35,7 +35,13 @@ const ENEMY_SPAWN_INTERVAL = 10000;  // ms between spawns
 const ENEMY_BASE_SPEED     = 200;    // px/s
 const ENEMY_SPEED_INCREMENT = 15;    // px/s added per spawn wave
 
+const PLAYER_MAX_SPEED = 800;        // px/s — max speed the player ball can travel
+
 const SCORE_INTERVAL = 1000;         // ms between score ticks
+
+// ─── Session state (survives scene restarts) ──────────────────────────────────
+
+let highScore = parseInt(localStorage.getItem('ballDodgerHighScore') || '0', 10);
 
 // ─── GameScene ────────────────────────────────────────────────────────────────
 
@@ -64,6 +70,15 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
             stroke: '#000000',
             strokeThickness: 3
+        }).setDepth(10);
+
+        // Best score display
+        this.highScoreText = this.add.text(16, 46, 'Best: ' + highScore, {
+            fontFamily: 'monospace',
+            fontSize: '16px',
+            color: '#aaaaaa',
+            stroke: '#000000',
+            strokeThickness: 2
         }).setDepth(10);
 
         // Enemy count display
@@ -100,7 +115,7 @@ class GameScene extends Phaser.Scene {
         this._startSpawnTimer();
     }
 
-    update() {
+    update(_time, delta) {
         if (this.gameOver) return;
 
         // 1. Sync enemy graphics to physics body positions
@@ -108,10 +123,21 @@ class GameScene extends Phaser.Scene {
             body.linkedGfx.setPosition(body.x, body.y);
         });
 
-        // 2. Move player to mouse position (clamped to canvas)
+        // 2. Move player towards mouse at capped speed (no teleporting)
         const ptr = this.input.activePointer;
-        this.playerX = Phaser.Math.Clamp(ptr.x, PLAYER_RADIUS, GAME_WIDTH  - PLAYER_RADIUS);
-        this.playerY = Phaser.Math.Clamp(ptr.y, PLAYER_RADIUS, GAME_HEIGHT - PLAYER_RADIUS);
+        const targetX = Phaser.Math.Clamp(ptr.x, PLAYER_RADIUS, GAME_WIDTH  - PLAYER_RADIUS);
+        const targetY = Phaser.Math.Clamp(ptr.y, PLAYER_RADIUS, GAME_HEIGHT - PLAYER_RADIUS);
+        const dx = targetX - this.playerX;
+        const dy = targetY - this.playerY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxStep = PLAYER_MAX_SPEED * (delta / 1000);
+        if (dist <= maxStep) {
+            this.playerX = targetX;
+            this.playerY = targetY;
+        } else {
+            this.playerX += (dx / dist) * maxStep;
+            this.playerY += (dy / dist) * maxStep;
+        }
         this.playerGfx.setPosition(this.playerX, this.playerY);
 
         // 3. Check collisions
@@ -236,10 +262,18 @@ class GameScene extends Phaser.Scene {
         // Freeze enemies
         this.enemies.getChildren().forEach(e => e.setVelocity(0, 0));
 
+        // Update session high score
+        const isNewBest = this.score > highScore;
+        if (isNewBest) {
+            highScore = this.score;
+            localStorage.setItem('ballDodgerHighScore', highScore);
+            this.highScoreText.setText('Best: ' + highScore);
+        }
+
         // Red flash then transition
         this.cameras.main.flash(300, 255, 50, 50);
         this.time.delayedCall(350, () => {
-            this.scene.start('GameOverScene', { score: this.score });
+            this.scene.start('GameOverScene', { score: this.score, highScore, isNewBest });
         });
     }
 
@@ -258,6 +292,8 @@ class GameOverScene extends Phaser.Scene {
 
     init(data) {
         this.finalScore = data.score;
+        this.highScore  = data.highScore;
+        this.isNewBest  = data.isNewBest;
     }
 
     create() {
@@ -268,7 +304,7 @@ class GameOverScene extends Phaser.Scene {
         this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.75);
 
         // Title
-        this.add.text(cx, cy - 110, 'GAME OVER', {
+        this.add.text(cx, cy - 120, 'GAME OVER', {
             fontFamily: 'monospace',
             fontSize: '52px',
             color: '#ff4444',
@@ -277,13 +313,32 @@ class GameOverScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         // Score
-        this.add.text(cx, cy - 20, `Survived: ${this.finalScore}s`, {
+        this.add.text(cx, cy - 30, `Survived: ${this.finalScore}s`, {
             fontFamily: 'monospace',
             fontSize: '32px',
             color: '#ffffff',
             stroke: '#000000',
             strokeThickness: 3
         }).setOrigin(0.5);
+
+        // High score line
+        if (this.isNewBest) {
+            this.add.text(cx, cy + 20, '★ NEW BEST! ★', {
+                fontFamily: 'monospace',
+                fontSize: '20px',
+                color: '#ffd700',
+                stroke: '#000000',
+                strokeThickness: 3
+            }).setOrigin(0.5);
+        } else {
+            this.add.text(cx, cy + 20, `Best: ${this.highScore}s`, {
+                fontFamily: 'monospace',
+                fontSize: '20px',
+                color: '#aaaaaa',
+                stroke: '#000000',
+                strokeThickness: 2
+            }).setOrigin(0.5);
+        }
 
         // Restart button
         const btn = this.add.text(cx, cy + 80, '[ PLAY AGAIN ]', {
